@@ -29,9 +29,11 @@ async function scanPost() {
 
   statusElement.textContent = "Scanning post…";
   countElement.textContent = "0";
+
   galleryElement.innerHTML = "";
   controlsElement.style.display = "none";
   downloadArea.style.display = "none";
+
   downloadStatus.textContent = "";
 
   downloadButton.classList.remove("complete");
@@ -63,11 +65,9 @@ async function scanPost() {
           };
         }
 
-        /*
-         * -------------------------------------------------------
-         * SOURCE INFORMATION
-         * -------------------------------------------------------
-         */
+        // --------------------------------------------------
+        // SOURCE INFORMATION
+        // --------------------------------------------------
 
         let username = "instagram";
 
@@ -92,9 +92,7 @@ async function scanPost() {
             username = new URL(possibleProfile.href).pathname
               .split("/")
               .filter(Boolean)[0];
-          } catch {
-            // Keep fallback username.
-          }
+          } catch {}
         }
 
         let postUrl = window.location.href;
@@ -107,11 +105,9 @@ async function scanPost() {
           postUrl = postLink.href;
         }
 
-        /*
-         * -------------------------------------------------------
-         * MEDIA COLLECTION
-         * -------------------------------------------------------
-         */
+        // --------------------------------------------------
+        // MEDIA HELPERS
+        // --------------------------------------------------
 
         const collected = [];
 
@@ -133,15 +129,6 @@ async function scanPost() {
           if (!elements.length) {
             return null;
           }
-
-          /*
-           * Instagram keeps previous and next carousel slides
-           * mounted outside the visible media area.
-           *
-           * The active slide is the large media element whose
-           * horizontal center is closest to the viewport center
-           * among the currently visible candidates.
-           */
 
           const viewportCenter = window.innerWidth / 2;
 
@@ -194,6 +181,10 @@ async function scanPost() {
           }
         }
 
+        // --------------------------------------------------
+        // VIDEO RESOURCE DETECTION
+        // --------------------------------------------------
+
         function getVideoResources() {
           const resources = performance
             .getEntriesByType("resource")
@@ -225,6 +216,10 @@ async function scanPost() {
 
               const encodeTag = metadata.vencode_tag || "";
 
+              /*
+               * Audio is intentionally outside
+               * the V1 scope.
+               */
               if (encodeTag.includes("audio")) {
                 continue;
               }
@@ -239,7 +234,12 @@ async function scanPost() {
                 continue;
               }
 
+              /*
+               * Remove byte-range parameters so the
+               * final URL points to the complete asset.
+               */
               url.searchParams.delete("bytestart");
+
               url.searchParams.delete("byteend");
 
               const resolutionMatch = encodeTag.match(/(\d{3,4})p/i);
@@ -250,23 +250,38 @@ async function scanPost() {
 
               const key = `${assetId}:${encodeTag}`;
 
-              if (!variants.has(key)) {
-                variants.set(key, {
-                  assetId,
-                  duration: metadata.duration_s || null,
+              const variant = {
+                assetId,
 
-                  bitrate: metadata.bitrate || 0,
+                duration:
+                  metadata.duration_s !== undefined
+                    ? Number(metadata.duration_s)
+                    : null,
 
-                  resolution,
+                bitrate: Number(metadata.bitrate) || 0,
 
-                  quality: resolution ? `${resolution}p` : "video",
+                resolution,
 
-                  encodeTag,
+                quality: resolution ? `${resolution}p` : "video",
 
-                  url: url.href,
+                encodeTag,
 
-                  startTime: resource.startTime,
-                });
+                url: url.href,
+
+                startTime: resource.startTime,
+              };
+
+              /*
+               * Instagram may request the same DASH
+               * representation several times using
+               * different byte ranges.
+               *
+               * Keep the newest occurrence.
+               */
+              const existing = variants.get(key);
+
+              if (!existing || variant.startTime > existing.startTime) {
+                variants.set(key, variant);
               }
             } catch {}
           }
@@ -281,16 +296,75 @@ async function scanPost() {
 
           const resources = getVideoResources();
 
-          const matching = resources.filter(
-            (resource) =>
-              resource.duration !== null &&
-              Math.abs(resource.duration - video.duration) < 1,
-          );
+          /*
+           * Instagram's duration_s is approximate.
+           *
+           * Validated examples:
+           *
+           * DOM 6.966666  -> metadata 7
+           * DOM 4.866666  -> metadata 4
+           * DOM 3.433333  -> metadata 3
+           * DOM 13.266666 -> metadata 13
+           * DOM 24.933333 -> metadata 24
+           *
+           * 1.1 seconds covers the cases observed
+           * during the multi-video carousel tests.
+           */
+          const durationMatches = resources.filter((resource) => {
+            if (
+              resource.duration === null ||
+              !Number.isFinite(resource.duration)
+            ) {
+              return false;
+            }
 
-          if (!matching.length) {
+            return Math.abs(resource.duration - video.duration) < 1.1;
+          });
+
+          if (!durationMatches.length) {
             return null;
           }
 
+          /*
+           * CAROUSEL CONTEXT
+           *
+           * We validated a real failure where a
+           * generic "clips" resource had an almost
+           * perfect duration match but belonged to
+           * another Instagram post.
+           *
+           * Wrong:
+           *
+           * clips
+           * duration 7
+           * difference 0.033334
+           *
+           * Correct:
+           *
+           * carousel_item
+           * duration 6
+           * difference 0.966666
+           *
+           * Therefore, when carousel-specific DASH
+           * resources exist inside the valid duration
+           * window, context takes priority over raw
+           * duration proximity.
+           *
+           * If no carousel resource exists, we fall
+           * back to all duration matches. This keeps
+           * standalone/Reel detection working.
+           */
+          const carouselMatches = durationMatches.filter((resource) =>
+            resource.encodeTag.toLowerCase().includes("carousel_item"),
+          );
+
+          const matching =
+            carouselMatches.length > 0 ? carouselMatches : durationMatches;
+
+          /*
+           * Group all representations belonging
+           * to the same Instagram video asset.
+           */
           const groups = new Map();
 
           for (const resource of matching) {
@@ -303,21 +377,35 @@ async function scanPost() {
 
           const assets = [...groups.entries()].map(([assetId, variants]) => ({
             assetId,
+
             variants,
+
+            durationDifference: Math.min(
+              ...variants.map((variant) =>
+                Math.abs(variant.duration - video.duration),
+              ),
+            ),
+
             latestStartTime: Math.max(
               ...variants.map((variant) => variant.startTime || 0),
             ),
           }));
 
           /*
-           * Prefer the asset with the greatest number
-           * of available representations.
+           * We are now comparing assets from the
+           * appropriate media context.
            *
-           * If two assets have the same number of
-           * variants, prefer the most recently loaded.
+           * Priority:
+           *
+           * 1. closest duration
+           * 2. most available representations
+           * 3. most recently loaded asset
            */
-
           assets.sort((a, b) => {
+            if (a.durationDifference !== b.durationDifference) {
+              return a.durationDifference - b.durationDifference;
+            }
+
             if (b.variants.length !== a.variants.length) {
               return b.variants.length - a.variants.length;
             }
@@ -332,10 +420,13 @@ async function scanPost() {
           }
 
           /*
-           * Resolution is more important than bitrate.
-           * Bitrate is only the tie-breaker.
+           * Once the correct asset has been
+           * identified, choose maximum visual
+           * quality.
+           *
+           * Resolution first.
+           * Bitrate second.
            */
-
           return [...asset.variants].sort((a, b) => {
             if (b.resolution !== a.resolution) {
               return b.resolution - a.resolution;
@@ -345,113 +436,103 @@ async function scanPost() {
           })[0];
         }
 
+        // --------------------------------------------------
+        // ACTIVE SLIDE COLLECTION
+        // --------------------------------------------------
+
+        async function collectVideo(video, poster = "") {
+          /*
+           * Instagram may need a short moment
+           * to expose the DASH resource after
+           * the slide becomes active.
+           */
+          for (let attempt = 0; attempt < 4; attempt++) {
+            const variant = findBestVideoVariant(video);
+
+            if (variant) {
+              collected.push({
+                type: "video",
+
+                url: variant.url,
+
+                assetId: variant.assetId,
+
+                width: video.videoWidth || 0,
+
+                height: video.videoHeight || 0,
+
+                duration: video.duration,
+
+                bitrate: variant.bitrate,
+
+                quality: variant.quality,
+
+                resolution: variant.resolution,
+
+                encodeTag: variant.encodeTag,
+
+                poster: poster || video.poster || "",
+              });
+
+              return true;
+            }
+
+            await sleep(200);
+          }
+
+          return false;
+        }
+
         async function collectActiveSlide() {
           /*
-           * Give Instagram a moment to finish replacing
-           * the currently active slide after navigation.
+           * Allow the carousel animation
+           * to settle.
            */
+          await sleep(100);
 
-          await sleep(150);
-
-          const active = getActiveMediaElement();
+          let active = getActiveMediaElement();
 
           if (!active) {
             return false;
           }
 
+          // ---------------- VIDEO ----------------
+
           if (active.tagName === "VIDEO") {
-            /*
-             * A video may need a little extra time before
-             * duration and network representations become
-             * available.
-             */
-
-            for (let attempt = 0; attempt < 6; attempt++) {
-              const variant = findBestVideoVariant(active);
-
-              if (variant) {
-                collected.push({
-                  type: "video",
-
-                  url: variant.url,
-
-                  assetId: variant.assetId,
-
-                  width: active.videoWidth || 0,
-
-                  height: active.videoHeight || 0,
-
-                  duration: active.duration,
-
-                  bitrate: variant.bitrate,
-
-                  quality: variant.quality,
-
-                  resolution: variant.resolution,
-
-                  encodeTag: variant.encodeTag,
-
-                  poster: active.poster || "",
-                });
-
-                return true;
-              }
-
-              await sleep(350);
-            }
-
-            return false;
+            return collectVideo(active);
           }
+
+          // ---------------- IMAGE ----------------
 
           if (active.tagName === "IMG") {
             /*
-             * A video cover is not a carousel image.
-             * If Instagram temporarily exposes the cover
-             * before the <video> becomes ready, wait for it.
+             * Instagram sometimes exposes the
+             * video cover before the VIDEO element
+             * becomes the closest active media.
              */
-
             if (isVideoCoverImage(active)) {
-              for (let attempt = 0; attempt < 6; attempt++) {
-                await sleep(350);
+              for (let attempt = 0; attempt < 4; attempt++) {
+                await sleep(200);
 
-                const retry = getActiveMediaElement();
+                active = getActiveMediaElement();
 
-                if (retry?.tagName === "VIDEO") {
-                  const variant = findBestVideoVariant(retry);
-
-                  if (variant) {
-                    collected.push({
-                      type: "video",
-
-                      url: variant.url,
-
-                      assetId: variant.assetId,
-
-                      width: retry.videoWidth || 0,
-
-                      height: retry.videoHeight || 0,
-
-                      duration: retry.duration,
-
-                      bitrate: variant.bitrate,
-
-                      quality: variant.quality,
-
-                      resolution: variant.resolution,
-
-                      encodeTag: variant.encodeTag,
-
-                      poster: active.src || active.currentSrc || "",
-                    });
-
-                    return true;
-                  }
+                if (active?.tagName === "VIDEO") {
+                  return collectVideo(active, active.poster || "");
                 }
               }
 
               return false;
             }
 
+            /*
+             * Prefer src over currentSrc.
+             *
+             * currentSrc may point to Instagram's
+             * reduced display representation
+             * (for example p480), while src can
+             * expose the higher-quality signed
+             * source.
+             */
             const url = active.src || active.currentSrc;
 
             if (!url) {
@@ -476,10 +557,9 @@ async function scanPost() {
           return false;
         }
 
-        /*
-         * Capture exactly one media item per active slide,
-         * then advance the Instagram carousel.
-         */
+        // --------------------------------------------------
+        // CAROUSEL WALK
+        // --------------------------------------------------
 
         for (let step = 0; step < 25; step++) {
           await collectActiveSlide();
@@ -504,7 +584,13 @@ async function scanPost() {
 
           nextButton.click();
 
-          await sleep(900);
+          /*
+           * Enough time for Instagram's
+           * carousel transition and media
+           * loading without making scanning
+           * unnecessarily sluggish.
+           */
+          await sleep(550);
         }
 
         return {
@@ -524,6 +610,7 @@ async function scanPost() {
 
     if (!result.success) {
       statusElement.textContent = result.error;
+
       return;
     }
 
@@ -559,11 +646,9 @@ async function scanPost() {
   }
 }
 
-/*
- * -------------------------------------------------------
- * GALLERY
- * -------------------------------------------------------
- */
+// --------------------------------------------------
+// GALLERY
+// --------------------------------------------------
 
 function renderMedia() {
   galleryElement.innerHTML = "";
@@ -573,17 +658,24 @@ function renderMedia() {
 
     container.className = item.selected ? "media selected" : "media";
 
-    /*
-     * IMAGE / VIDEO PREVIEW
-     */
-
     const image = document.createElement("img");
 
     if (item.type === "video") {
-      image.src = item.poster || createVideoPlaceholder();
+      if (item.poster) {
+        image.src = item.poster;
+      } else {
+        /*
+         * Empty transparent preview.
+         * We don't use the MP4 itself
+         * as an IMG source.
+         */
+        image.src =
+          "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
+      }
 
       image.title =
-        `${item.width} × ${item.height}` + ` · ${item.quality}` + ` · no audio`;
+        `${item.width} × ${item.height}` +
+        (item.quality ? ` · ${item.quality}` : "");
     } else {
       image.src = item.url;
 
@@ -593,37 +685,34 @@ function renderMedia() {
     const check = document.createElement("div");
 
     check.className = "check";
+
     check.textContent = "✓";
 
     const number = document.createElement("div");
 
     number.className = "media-number";
 
-    if (item.type === "video") {
-      number.textContent = `${index + 1} · ${item.quality}`;
-    } else {
-      number.textContent = index + 1;
-    }
+    number.textContent = index + 1;
 
     container.appendChild(image);
-    container.appendChild(check);
-    container.appendChild(number);
 
-    /*
-     * Video badge.
-     */
+    container.appendChild(check);
+
+    container.appendChild(number);
 
     if (item.type === "video") {
       const badge = document.createElement("div");
 
       badge.className = "video-badge";
-      badge.textContent = "VIDEO";
+
+      badge.textContent = item.quality ? `VIDEO · ${item.quality}` : "VIDEO";
 
       container.appendChild(badge);
     }
 
     container.addEventListener("click", () => {
       item.selected = !item.selected;
+
       renderMedia();
     });
 
@@ -644,11 +733,9 @@ function updateSelectionUI() {
   downloadButton.disabled = selected.length === 0;
 }
 
-/*
- * -------------------------------------------------------
- * DOWNLOAD
- * -------------------------------------------------------
- */
+// --------------------------------------------------
+// DOWNLOAD
+// --------------------------------------------------
 
 async function downloadSelected() {
   const selected = mediaItems.filter((item) => item.selected);
@@ -669,16 +756,18 @@ async function downloadSelected() {
 
   let completed = 0;
 
-  for (let i = 0; i < selected.length; i++) {
-    const item = selected[i];
-
+  for (const item of selected) {
     const extension = item.type === "video" ? "mp4" : getExtension(item.url);
 
     /*
-     * Preserve original media position
-     * rather than renumbering the selected subset.
+     * Preserve the original
+     * carousel position.
+     *
+     * If the user downloads
+     * slides 2 and 5 only,
+     * filenames remain
+     * 02 and 05.
      */
-
     const number = String(item.index + 1).padStart(2, "0");
 
     const filename =
@@ -723,11 +812,9 @@ async function downloadSelected() {
   downloadButton.disabled = false;
 }
 
-/*
- * -------------------------------------------------------
- * HELPERS
- * -------------------------------------------------------
- */
+// --------------------------------------------------
+// UTILITIES
+// --------------------------------------------------
 
 function getExtension(url) {
   try {
@@ -742,9 +829,7 @@ function getExtension(url) {
         return ext === "jpeg" ? "jpg" : ext;
       }
     }
-  } catch {
-    // Ignore.
-  }
+  } catch {}
 
   return "jpg";
 }
@@ -755,29 +840,4 @@ function sanitizeFilename(value) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function createVideoPlaceholder() {
-  return (
-    "data:image/svg+xml;charset=UTF-8," +
-    encodeURIComponent(`
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        width="400"
-        height="400"
-        viewBox="0 0 400 400"
-      >
-        <rect
-          width="400"
-          height="400"
-          fill="#222"
-        />
-
-        <polygon
-          points="165,125 165,275 285,200"
-          fill="#fff"
-        />
-      </svg>
-    `)
-  );
 }
