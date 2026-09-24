@@ -52,8 +52,7 @@ async function scanPost() {
       },
 
       func: async () => {
-        const sleep = (ms) =>
-          new Promise((resolve) => setTimeout(resolve, ms));
+        const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
         const dialog = document.querySelector('div[role="dialog"]');
 
@@ -101,9 +100,7 @@ async function scanPost() {
         let postUrl = window.location.href;
 
         const postLink = [...dialog.querySelectorAll("a")].find(
-          (link) =>
-            link.href.includes("/p/") ||
-            link.href.includes("/reel/"),
+          (link) => link.href.includes("/p/") || link.href.includes("/reel/"),
         );
 
         if (postLink) {
@@ -116,323 +113,390 @@ async function scanPost() {
          * -------------------------------------------------------
          */
 
-        const collected = new Map();
+        const collected = [];
 
-        function collectImages() {
-          const images = [...dialog.querySelectorAll("img")];
+        function getMediaElements() {
+          const images = [...dialog.querySelectorAll("img")].filter(
+            (img) => img.naturalWidth >= 300 && img.naturalHeight >= 300,
+          );
 
-          for (const img of images) {
-            const url = img.currentSrc || img.src;
+          const videos = [...dialog.querySelectorAll("video")].filter(
+            (video) => video.videoWidth >= 300 && video.videoHeight >= 300,
+          );
 
-            if (!url) continue;
-
-            if (
-              img.naturalWidth < 300 ||
-              img.naturalHeight < 300
-            ) {
-              continue;
-            }
-
-            const alt = (img.alt || "").toLowerCase();
-
-            if (alt.includes("profile picture")) {
-              continue;
-            }
-
-            /*
-             * A video poster/cover can appear as an <img>.
-             * We currently keep normal image behaviour.
-             * Video duplicates will be handled later.
-             */
-
-            collected.set(`image:${url}`, {
-              type: "image",
-              url,
-              width: img.naturalWidth,
-              height: img.naturalHeight,
-              alt: img.alt || "",
-            });
-          }
+          return [...images, ...videos];
         }
 
-        /*
-         * -------------------------------------------------------
-         * VIDEO RESOURCE PARSER
-         * -------------------------------------------------------
-         */
+        function getActiveMediaElement() {
+          const elements = getMediaElements();
+
+          if (!elements.length) {
+            return null;
+          }
+
+          /*
+           * Instagram keeps previous and next carousel slides
+           * mounted outside the visible media area.
+           *
+           * The active slide is the large media element whose
+           * horizontal center is closest to the viewport center
+           * among the currently visible candidates.
+           */
+
+          const viewportCenter = window.innerWidth / 2;
+
+          const candidates = elements
+            .map((element) => {
+              const rect = element.getBoundingClientRect();
+
+              return {
+                element,
+                rect,
+                center: rect.left + rect.width / 2,
+              };
+            })
+            .filter(({ rect }) => {
+              return (
+                rect.width >= 300 &&
+                rect.height >= 300 &&
+                rect.right > 0 &&
+                rect.left < window.innerWidth
+              );
+            })
+            .sort((a, b) => {
+              const distanceA = Math.abs(a.center - viewportCenter);
+
+              const distanceB = Math.abs(b.center - viewportCenter);
+
+              return distanceA - distanceB;
+            });
+
+          return candidates[0]?.element || null;
+        }
+
+        function isVideoCoverImage(img) {
+          try {
+            const url = new URL(img.currentSrc || img.src);
+
+            const efg = url.searchParams.get("efg");
+
+            if (!efg) {
+              return false;
+            }
+
+            const metadata = JSON.parse(atob(efg));
+
+            const encodeTag = metadata.vencode_tag || "";
+
+            return encodeTag.includes("video_default_cover_frame");
+          } catch {
+            return false;
+          }
+        }
 
         function getVideoResources() {
           const resources = performance
             .getEntriesByType("resource")
-            .map((entry) => entry.name)
-            .filter((url) => url.includes(".mp4"));
+            .map((entry) => ({
+              url: entry.name,
+              startTime: entry.startTime,
+            }))
+            .filter(({ url }) => url.includes(".mp4"));
 
           const variants = new Map();
 
-          for (const resourceUrl of resources) {
+          for (const resource of resources) {
             try {
-              const url = new URL(resourceUrl);
+              const url = new URL(resource.url);
+
               const efg = url.searchParams.get("efg");
 
-              if (!efg) continue;
+              if (!efg) {
+                continue;
+              }
 
               let metadata;
 
               try {
-                metadata = JSON.parse(
-                  atob(decodeURIComponent(efg)),
-                );
+                metadata = JSON.parse(atob(efg));
               } catch {
                 continue;
               }
 
-              const encodeTag =
-                metadata.vencode_tag || "";
-
-              /*
-               * Ignore the separate audio stream.
-               */
+              const encodeTag = metadata.vencode_tag || "";
 
               if (encodeTag.includes("audio")) {
                 continue;
               }
 
-              /*
-               * We only want video representations.
-               */
-
               if (!encodeTag.includes("dash")) {
+                continue;
+              }
+
+              const assetId = metadata.xpv_asset_id || null;
+
+              if (!assetId) {
                 continue;
               }
 
               url.searchParams.delete("bytestart");
               url.searchParams.delete("byteend");
 
-              const assetId =
-                metadata.xpv_asset_id || null;
+              const resolutionMatch = encodeTag.match(/(\d{3,4})p/i);
 
-              if (!assetId) continue;
-
-              /*
-               * Deduplicate Instagram byte-range requests.
-               */
+              const resolution = resolutionMatch
+                ? Number(resolutionMatch[1])
+                : 0;
 
               const key = `${assetId}:${encodeTag}`;
 
               if (!variants.has(key)) {
                 variants.set(key, {
                   assetId,
-                  duration:
-                    metadata.duration_s || null,
-                  bitrate:
-                    metadata.bitrate || 0,
+                  duration: metadata.duration_s || null,
+
+                  bitrate: metadata.bitrate || 0,
+
+                  resolution,
+
+                  quality: resolution ? `${resolution}p` : "video",
+
                   encodeTag,
+
                   url: url.href,
+
+                  startTime: resource.startTime,
                 });
               }
-            } catch {
-              // Ignore malformed resource.
-            }
+            } catch {}
           }
 
           return [...variants.values()];
         }
 
-        /*
-         * -------------------------------------------------------
-         * ACTIVE VIDEO DETECTION
-         * -------------------------------------------------------
-         */
-
-        function collectVideos() {
-          const videos = [
-            ...dialog.querySelectorAll("video"),
-          ];
-
-          if (!videos.length) {
-            return;
+        function findBestVideoVariant(video) {
+          if (!Number.isFinite(video.duration) || video.duration <= 0) {
+            return null;
           }
 
           const resources = getVideoResources();
 
-          for (const video of videos) {
-            if (
-              !Number.isFinite(video.duration) ||
-              video.duration <= 0
-            ) {
-              continue;
-            }
+          const matching = resources.filter(
+            (resource) =>
+              resource.duration !== null &&
+              Math.abs(resource.duration - video.duration) < 1,
+          );
 
-            /*
-             * Instagram metadata currently stores duration
-             * as an integer.
-             *
-             * Example:
-             * DOM      -> 82.548 seconds
-             * metadata -> 82 seconds
-             */
-
-            const matchingAssets = resources.filter(
-              (resource) =>
-                resource.duration !== null &&
-                Math.abs(
-                  resource.duration - video.duration,
-                ) < 1,
-            );
-
-            if (!matchingAssets.length) {
-              continue;
-            }
-
-            /*
-             * Group matches by asset ID.
-             */
-
-            const groups = new Map();
-
-            for (const resource of matchingAssets) {
-              if (!groups.has(resource.assetId)) {
-                groups.set(resource.assetId, []);
-              }
-
-              groups
-                .get(resource.assetId)
-                .push(resource);
-            }
-
-            /*
-             * Prefer the asset with the greatest number
-             * of available video representations.
-             */
-
-            const candidates = [...groups.entries()]
-              .map(([assetId, variants]) => ({
-                assetId,
-                variants,
-              }))
-              .sort(
-                (a, b) =>
-                  b.variants.length -
-                  a.variants.length,
-              );
-
-            if (!candidates.length) {
-              continue;
-            }
-
-            const asset = candidates[0];
-
-            /*
-             * Best quality = highest bitrate.
-             */
-
-            const bestVariant = [...asset.variants].sort(
-              (a, b) => b.bitrate - a.bitrate,
-            )[0];
-
-            if (!bestVariant) {
-              continue;
-            }
-
-            /*
-             * Extract resolution label from Instagram tag.
-             */
-
-            const resolutionMatch =
-              bestVariant.encodeTag.match(
-                /(\d{3,4})p/i,
-              );
-
-            const quality = resolutionMatch
-              ? `${resolutionMatch[1]}p`
-              : "video";
-
-            /*
-             * Try to find a useful visual preview.
-             */
-
-            let poster = video.poster || "";
-
-            if (!poster) {
-              const nearbyImages = [
-                ...dialog.querySelectorAll("img"),
-              ].filter(
-                (img) =>
-                  img.naturalWidth >= 300 &&
-                  img.naturalHeight >= 300,
-              );
-
-              if (nearbyImages.length) {
-                poster =
-                  nearbyImages[0].currentSrc ||
-                  nearbyImages[0].src ||
-                  "";
-              }
-            }
-
-            collected.set(
-              `video:${bestVariant.assetId}`,
-              {
-                type: "video",
-
-                url: bestVariant.url,
-
-                assetId:
-                  bestVariant.assetId,
-
-                width:
-                  video.videoWidth || 0,
-
-                height:
-                  video.videoHeight || 0,
-
-                duration:
-                  video.duration,
-
-                bitrate:
-                  bestVariant.bitrate,
-
-                quality,
-
-                poster,
-
-                encodeTag:
-                  bestVariant.encodeTag,
-              },
-            );
+          if (!matching.length) {
+            return null;
           }
+
+          const groups = new Map();
+
+          for (const resource of matching) {
+            if (!groups.has(resource.assetId)) {
+              groups.set(resource.assetId, []);
+            }
+
+            groups.get(resource.assetId).push(resource);
+          }
+
+          const assets = [...groups.entries()].map(([assetId, variants]) => ({
+            assetId,
+            variants,
+            latestStartTime: Math.max(
+              ...variants.map((variant) => variant.startTime || 0),
+            ),
+          }));
+
+          /*
+           * Prefer the asset with the greatest number
+           * of available representations.
+           *
+           * If two assets have the same number of
+           * variants, prefer the most recently loaded.
+           */
+
+          assets.sort((a, b) => {
+            if (b.variants.length !== a.variants.length) {
+              return b.variants.length - a.variants.length;
+            }
+
+            return b.latestStartTime - a.latestStartTime;
+          });
+
+          const asset = assets[0];
+
+          if (!asset) {
+            return null;
+          }
+
+          /*
+           * Resolution is more important than bitrate.
+           * Bitrate is only the tie-breaker.
+           */
+
+          return [...asset.variants].sort((a, b) => {
+            if (b.resolution !== a.resolution) {
+              return b.resolution - a.resolution;
+            }
+
+            return b.bitrate - a.bitrate;
+          })[0];
+        }
+
+        async function collectActiveSlide() {
+          /*
+           * Give Instagram a moment to finish replacing
+           * the currently active slide after navigation.
+           */
+
+          await sleep(150);
+
+          const active = getActiveMediaElement();
+
+          if (!active) {
+            return false;
+          }
+
+          if (active.tagName === "VIDEO") {
+            /*
+             * A video may need a little extra time before
+             * duration and network representations become
+             * available.
+             */
+
+            for (let attempt = 0; attempt < 6; attempt++) {
+              const variant = findBestVideoVariant(active);
+
+              if (variant) {
+                collected.push({
+                  type: "video",
+
+                  url: variant.url,
+
+                  assetId: variant.assetId,
+
+                  width: active.videoWidth || 0,
+
+                  height: active.videoHeight || 0,
+
+                  duration: active.duration,
+
+                  bitrate: variant.bitrate,
+
+                  quality: variant.quality,
+
+                  resolution: variant.resolution,
+
+                  encodeTag: variant.encodeTag,
+
+                  poster: active.poster || "",
+                });
+
+                return true;
+              }
+
+              await sleep(350);
+            }
+
+            return false;
+          }
+
+          if (active.tagName === "IMG") {
+            /*
+             * A video cover is not a carousel image.
+             * If Instagram temporarily exposes the cover
+             * before the <video> becomes ready, wait for it.
+             */
+
+            if (isVideoCoverImage(active)) {
+              for (let attempt = 0; attempt < 6; attempt++) {
+                await sleep(350);
+
+                const retry = getActiveMediaElement();
+
+                if (retry?.tagName === "VIDEO") {
+                  const variant = findBestVideoVariant(retry);
+
+                  if (variant) {
+                    collected.push({
+                      type: "video",
+
+                      url: variant.url,
+
+                      assetId: variant.assetId,
+
+                      width: retry.videoWidth || 0,
+
+                      height: retry.videoHeight || 0,
+
+                      duration: retry.duration,
+
+                      bitrate: variant.bitrate,
+
+                      quality: variant.quality,
+
+                      resolution: variant.resolution,
+
+                      encodeTag: variant.encodeTag,
+
+                      poster: active.src || active.currentSrc || "",
+                    });
+
+                    return true;
+                  }
+                }
+              }
+
+              return false;
+            }
+
+            const url = active.src || active.currentSrc;
+
+            if (!url) {
+              return false;
+            }
+
+            collected.push({
+              type: "image",
+
+              url,
+
+              width: active.naturalWidth,
+
+              height: active.naturalHeight,
+
+              alt: active.alt || "",
+            });
+
+            return true;
+          }
+
+          return false;
         }
 
         /*
-         * -------------------------------------------------------
-         * WALK THROUGH CAROUSEL
-         * -------------------------------------------------------
+         * Capture exactly one media item per active slide,
+         * then advance the Instagram carousel.
          */
 
         for (let step = 0; step < 25; step++) {
-          collectImages();
-          collectVideos();
+          await collectActiveSlide();
 
-          const buttons = [
-            ...dialog.querySelectorAll("button"),
-          ];
+          const buttons = [...dialog.querySelectorAll("button")];
 
-          const nextButton = buttons.find(
-            (button) => {
-              const label = (
-                button.getAttribute("aria-label") ||
-                button.innerText ||
-                ""
-              )
-                .trim()
-                .toLowerCase();
+          const nextButton = buttons.find((button) => {
+            const label = (
+              button.getAttribute("aria-label") ||
+              button.innerText ||
+              ""
+            )
+              .trim()
+              .toLowerCase();
 
-              return (
-                label.includes("next") ||
-                label.includes("suivant")
-              );
-            },
-          );
+            return label.includes("next") || label.includes("suivant");
+          });
 
           if (!nextButton) {
             break;
@@ -440,24 +504,14 @@ async function scanPost() {
 
           nextButton.click();
 
-          /*
-           * Give Instagram enough time to:
-           * - change carousel item
-           * - initialize video
-           * - populate PerformanceResourceTiming
-           */
-
           await sleep(900);
         }
-
-        collectImages();
-        collectVideos();
 
         return {
           success: true,
           username,
           postUrl,
-          media: [...collected.values()],
+          media: collected,
         };
       },
     });
@@ -465,9 +519,7 @@ async function scanPost() {
     const result = results?.[0]?.result;
 
     if (!result) {
-      throw new Error(
-        "No response received from page.",
-      );
+      throw new Error("No response received from page.");
     }
 
     if (!result.success) {
@@ -476,32 +528,24 @@ async function scanPost() {
     }
 
     sourceInfo = {
-      username: sanitizeFilename(
-        result.username || "instagram",
-      ),
+      username: sanitizeFilename(result.username || "instagram"),
 
       postUrl: result.postUrl,
     };
 
-    mediaItems = result.media.map(
-      (item, index) => ({
-        ...item,
-        index,
-        selected: true,
-      }),
-    );
+    mediaItems = result.media.map((item, index) => ({
+      ...item,
+      index,
+      selected: true,
+    }));
 
-    countElement.textContent =
-      mediaItems.length;
+    countElement.textContent = mediaItems.length;
 
-    statusElement.textContent =
-      "Scan complete";
+    statusElement.textContent = "Scan complete";
 
-    controlsElement.style.display =
-      mediaItems.length ? "flex" : "none";
+    controlsElement.style.display = mediaItems.length ? "flex" : "none";
 
-    downloadArea.style.display =
-      mediaItems.length ? "block" : "none";
+    downloadArea.style.display = mediaItems.length ? "block" : "none";
 
     selectAll.checked = true;
 
@@ -509,8 +553,7 @@ async function scanPost() {
   } catch (error) {
     console.error(error);
 
-    statusElement.textContent =
-      "Scan failed";
+    statusElement.textContent = "Scan failed";
   } finally {
     scanButton.disabled = false;
   }
@@ -526,53 +569,40 @@ function renderMedia() {
   galleryElement.innerHTML = "";
 
   mediaItems.forEach((item, index) => {
-    const container =
-      document.createElement("div");
+    const container = document.createElement("div");
 
-    container.className = item.selected
-      ? "media selected"
-      : "media";
+    container.className = item.selected ? "media selected" : "media";
 
     /*
      * IMAGE / VIDEO PREVIEW
      */
 
-    const image =
-      document.createElement("img");
+    const image = document.createElement("img");
 
     if (item.type === "video") {
-      image.src =
-        item.poster ||
-        createVideoPlaceholder();
+      image.src = item.poster || createVideoPlaceholder();
 
       image.title =
-        `${item.width} × ${item.height}` +
-        ` · ${item.quality}` +
-        ` · no audio`;
+        `${item.width} × ${item.height}` + ` · ${item.quality}` + ` · no audio`;
     } else {
       image.src = item.url;
 
-      image.title =
-        `${item.width} × ${item.height}`;
+      image.title = `${item.width} × ${item.height}`;
     }
 
-    const check =
-      document.createElement("div");
+    const check = document.createElement("div");
 
     check.className = "check";
     check.textContent = "✓";
 
-    const number =
-      document.createElement("div");
+    const number = document.createElement("div");
 
     number.className = "media-number";
 
     if (item.type === "video") {
-      number.textContent =
-        `${index + 1} · ${item.quality}`;
+      number.textContent = `${index + 1} · ${item.quality}`;
     } else {
-      number.textContent =
-        index + 1;
+      number.textContent = index + 1;
     }
 
     container.appendChild(image);
@@ -584,8 +614,7 @@ function renderMedia() {
      */
 
     if (item.type === "video") {
-      const badge =
-        document.createElement("div");
+      const badge = document.createElement("div");
 
       badge.className = "video-badge";
       badge.textContent = "VIDEO";
@@ -593,36 +622,26 @@ function renderMedia() {
       container.appendChild(badge);
     }
 
-    container.addEventListener(
-      "click",
-      () => {
-        item.selected = !item.selected;
-        renderMedia();
-      },
-    );
+    container.addEventListener("click", () => {
+      item.selected = !item.selected;
+      renderMedia();
+    });
 
-    galleryElement.appendChild(
-      container,
-    );
+    galleryElement.appendChild(container);
   });
 
   updateSelectionUI();
 }
 
 function updateSelectionUI() {
-  const selected = mediaItems.filter(
-    (item) => item.selected,
-  );
+  const selected = mediaItems.filter((item) => item.selected);
 
-  selectedCount.textContent =
-    `${selected.length} selected`;
+  selectedCount.textContent = `${selected.length} selected`;
 
   selectAll.checked =
-    mediaItems.length > 0 &&
-    selected.length === mediaItems.length;
+    mediaItems.length > 0 && selected.length === mediaItems.length;
 
-  downloadButton.disabled =
-    selected.length === 0;
+  downloadButton.disabled = selected.length === 0;
 }
 
 /*
@@ -632,9 +651,7 @@ function updateSelectionUI() {
  */
 
 async function downloadSelected() {
-  const selected = mediaItems.filter(
-    (item) => item.selected,
-  );
+  const selected = mediaItems.filter((item) => item.selected);
 
   if (!selected.length) {
     return;
@@ -642,47 +659,30 @@ async function downloadSelected() {
 
   downloadButton.disabled = true;
 
-  downloadButton.classList.remove(
-    "complete",
-  );
+  downloadButton.classList.remove("complete");
 
-  downloadButton.style.setProperty(
-    "--progress",
-    "0%",
-  );
+  downloadButton.style.setProperty("--progress", "0%");
 
-  downloadButtonText.textContent =
-    `Downloading… 0 / ${selected.length}`;
+  downloadButtonText.textContent = `Downloading… 0 / ${selected.length}`;
 
   downloadStatus.textContent = "";
 
   let completed = 0;
 
-  for (
-    let i = 0;
-    i < selected.length;
-    i++
-  ) {
+  for (let i = 0; i < selected.length; i++) {
     const item = selected[i];
 
-    const extension =
-      item.type === "video"
-        ? "mp4"
-        : getExtension(item.url);
+    const extension = item.type === "video" ? "mp4" : getExtension(item.url);
 
     /*
      * Preserve original media position
      * rather than renumbering the selected subset.
      */
 
-    const number = String(
-      item.index + 1,
-    ).padStart(2, "0");
+    const number = String(item.index + 1).padStart(2, "0");
 
     const filename =
-      "MediaCollector/" +
-      `${sourceInfo.username}_` +
-      `${number}.${extension}`;
+      "MediaCollector/" + `${sourceInfo.username}_` + `${number}.${extension}`;
 
     try {
       await chrome.downloads.download({
@@ -694,50 +694,30 @@ async function downloadSelected() {
 
       completed++;
 
-      const progress = Math.round(
-        (completed / selected.length) *
-          100,
-      );
+      const progress = Math.round((completed / selected.length) * 100);
 
-      downloadButton.style.setProperty(
-        "--progress",
-        `${progress}%`,
-      );
+      downloadButton.style.setProperty("--progress", `${progress}%`);
 
-      downloadButtonText.textContent =
-        `Downloading… ${completed} / ${selected.length}`;
+      downloadButtonText.textContent = `Downloading… ${completed} / ${selected.length}`;
 
       await sleep(150);
     } catch (error) {
-      console.error(
-        "Download failed:",
-        item.url,
-        error,
-      );
+      console.error("Download failed:", item.url, error);
     }
   }
 
   if (completed === selected.length) {
-    downloadButton.style.setProperty(
-      "--progress",
-      "100%",
-    );
+    downloadButton.style.setProperty("--progress", "100%");
 
-    downloadButton.classList.add(
-      "complete",
-    );
+    downloadButton.classList.add("complete");
 
-    downloadButtonText.textContent =
-      "✓ Download complete";
+    downloadButtonText.textContent = "✓ Download complete";
 
-    downloadStatus.textContent =
-      `${completed} files sent to Downloads`;
+    downloadStatus.textContent = `${completed} files sent to Downloads`;
   } else {
-    downloadButtonText.textContent =
-      "Download incomplete";
+    downloadButtonText.textContent = "Download incomplete";
 
-    downloadStatus.textContent =
-      `${completed} / ${selected.length} files sent to Downloads`;
+    downloadStatus.textContent = `${completed} / ${selected.length} files sent to Downloads`;
   }
 
   downloadButton.disabled = false;
@@ -751,29 +731,15 @@ async function downloadSelected() {
 
 function getExtension(url) {
   try {
-    const pathname =
-      new URL(url).pathname;
+    const pathname = new URL(url).pathname;
 
-    const match =
-      pathname.match(
-        /\.([a-zA-Z0-9]+)$/,
-      );
+    const match = pathname.match(/\.([a-zA-Z0-9]+)$/);
 
     if (match) {
-      const ext =
-        match[1].toLowerCase();
+      const ext = match[1].toLowerCase();
 
-      if (
-        [
-          "jpg",
-          "jpeg",
-          "png",
-          "webp",
-        ].includes(ext)
-      ) {
-        return ext === "jpeg"
-          ? "jpg"
-          : ext;
+      if (["jpg", "jpeg", "png", "webp"].includes(ext)) {
+        return ext === "jpeg" ? "jpg" : ext;
       }
     }
   } catch {
@@ -784,18 +750,11 @@ function getExtension(url) {
 }
 
 function sanitizeFilename(value) {
-  return value
-    .replace(
-      /[^a-zA-Z0-9._-]/g,
-      "_",
-    )
-    .replace(/_+/g, "_");
+  return value.replace(/[^a-zA-Z0-9._-]/g, "_").replace(/_+/g, "_");
 }
 
 function sleep(ms) {
-  return new Promise((resolve) =>
-    setTimeout(resolve, ms),
-  );
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function createVideoPlaceholder() {
