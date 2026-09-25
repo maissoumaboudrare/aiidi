@@ -134,6 +134,46 @@
         font-size: 12px;
       }
 
+      /* --------------------------------------------------
+         MEDIA FILTER
+         -------------------------------------------------- */
+
+      #mediaFilter {
+        display: none;
+
+        grid-template-columns: repeat(3, 1fr);
+
+        padding: 3px;
+        margin-bottom: 14px;
+
+        background: #1c1c1c;
+        border-radius: 7px;
+      }
+
+      .filter-button {
+        padding: 7px 8px;
+
+        border: 0;
+        border-radius: 5px;
+
+        background: transparent;
+        color: #777;
+
+        font-size: 11px;
+        font-weight: 600;
+
+        cursor: pointer;
+
+        transition:
+          background 0.2s ease,
+          color 0.2s ease;
+      }
+
+      .filter-button.active {
+        background: #fff;
+        color: #111;
+      }
+
       #controls {
         display: none;
 
@@ -234,19 +274,6 @@
         color: transparent;
       }
 
-      #downloadArea {
-        display: none;
-      }
-
-      #downloadStatus {
-        margin-top: 8px;
-
-        min-height: 14px;
-
-        color: #22c55e;
-        font-size: 11px;
-        text-align: center;
-      }
       .video-badge {
         position: absolute;
 
@@ -264,6 +291,20 @@
         font-weight: 700;
         letter-spacing: 0.5px;
       }
+
+      #downloadArea {
+        display: none;
+      }
+
+      #downloadStatus {
+        margin-top: 8px;
+
+        min-height: 14px;
+
+        color: #22c55e;
+        font-size: 11px;
+        text-align: center;
+      }
     </style>
   </head>
 
@@ -277,7 +318,15 @@
 
     <div class="summary">
       <div id="count">0</div>
-      <div class="label">images detected</div>
+      <div class="label" id="countLabel">media detected</div>
+    </div>
+
+    <div id="mediaFilter">
+      <button class="filter-button active" data-filter="both">Both</button>
+
+      <button class="filter-button" data-filter="image">Images</button>
+
+      <button class="filter-button" data-filter="video">Videos</button>
     </div>
 
     <div id="controls">
@@ -287,14 +336,14 @@
         Select all
       </label>
 
-      <span id="selectedCount"> 0 selected </span>
+      <span id="selectedCount">0 selected</span>
     </div>
 
     <div id="gallery"></div>
 
     <div id="downloadArea">
       <button id="downloadButton">
-        <span id="downloadButtonText"> Download Selected </span>
+        <span id="downloadButtonText">Download Selected</span>
       </button>
 
       <div id="downloadStatus"></div>

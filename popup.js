@@ -3,42 +3,74 @@ const downloadButton = document.querySelector("#downloadButton");
 const downloadButtonText = document.querySelector("#downloadButtonText");
 const statusElement = document.querySelector("#status");
 const countElement = document.querySelector("#count");
+const countLabel = document.querySelector("#countLabel");
 const galleryElement = document.querySelector("#gallery");
 const controlsElement = document.querySelector("#controls");
 const downloadArea = document.querySelector("#downloadArea");
 const downloadStatus = document.querySelector("#downloadStatus");
 const selectAll = document.querySelector("#selectAll");
 const selectedCount = document.querySelector("#selectedCount");
+const mediaFilter = document.querySelector("#mediaFilter");
+const filterButtons = [...document.querySelectorAll(".filter-button")];
 
 let mediaItems = [];
 let sourceInfo = null;
+let currentFilter = "both";
 
 scanButton.addEventListener("click", scanPost);
 downloadButton.addEventListener("click", downloadSelected);
 
 selectAll.addEventListener("change", () => {
-  mediaItems.forEach((item) => {
+  const visibleMedia = getVisibleMedia();
+
+  visibleMedia.forEach((item) => {
     item.selected = selectAll.checked;
   });
 
   renderMedia();
 });
 
+filterButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    currentFilter = button.dataset.filter;
+
+    filterButtons.forEach((item) => {
+      item.classList.toggle("active", item === button);
+    });
+
+    resetDownloadUI();
+    renderMedia();
+  });
+});
+
+function getVisibleMedia() {
+  if (currentFilter === "both") {
+    return mediaItems;
+  }
+
+  return mediaItems.filter((item) => item.type === currentFilter);
+}
+
+function resetDownloadUI() {
+  downloadButton.classList.remove("complete");
+  downloadButton.style.setProperty("--progress", "0%");
+  downloadButtonText.textContent = "Download Selected";
+  downloadStatus.textContent = "";
+}
+
 async function scanPost() {
   scanButton.disabled = true;
 
   statusElement.textContent = "Scanning post…";
   countElement.textContent = "0";
+  countLabel.textContent = "media detected";
 
   galleryElement.innerHTML = "";
   controlsElement.style.display = "none";
+  mediaFilter.style.display = "none";
   downloadArea.style.display = "none";
 
-  downloadStatus.textContent = "";
-
-  downloadButton.classList.remove("complete");
-  downloadButton.style.setProperty("--progress", "0%");
-  downloadButtonText.textContent = "Download Selected";
+  resetDownloadUI();
 
   mediaItems = [];
 
@@ -164,7 +196,6 @@ async function scanPost() {
         function isVideoCoverImage(img) {
           try {
             const url = new URL(img.currentSrc || img.src);
-
             const efg = url.searchParams.get("efg");
 
             if (!efg) {
@@ -172,7 +203,6 @@ async function scanPost() {
             }
 
             const metadata = JSON.parse(atob(efg));
-
             const encodeTag = metadata.vencode_tag || "";
 
             return encodeTag.includes("video_default_cover_frame");
@@ -199,7 +229,6 @@ async function scanPost() {
           for (const resource of resources) {
             try {
               const url = new URL(resource.url);
-
               const efg = url.searchParams.get("efg");
 
               if (!efg) {
@@ -216,10 +245,6 @@ async function scanPost() {
 
               const encodeTag = metadata.vencode_tag || "";
 
-              /*
-               * Audio is intentionally outside
-               * the V1 scope.
-               */
               if (encodeTag.includes("audio")) {
                 continue;
               }
@@ -234,12 +259,7 @@ async function scanPost() {
                 continue;
               }
 
-              /*
-               * Remove byte-range parameters so the
-               * final URL points to the complete asset.
-               */
               url.searchParams.delete("bytestart");
-
               url.searchParams.delete("byteend");
 
               const resolutionMatch = encodeTag.match(/(\d{3,4})p/i);
@@ -271,13 +291,6 @@ async function scanPost() {
                 startTime: resource.startTime,
               };
 
-              /*
-               * Instagram may request the same DASH
-               * representation several times using
-               * different byte ranges.
-               *
-               * Keep the newest occurrence.
-               */
               const existing = variants.get(key);
 
               if (!existing || variant.startTime > existing.startTime) {
@@ -296,20 +309,6 @@ async function scanPost() {
 
           const resources = getVideoResources();
 
-          /*
-           * Instagram's duration_s is approximate.
-           *
-           * Validated examples:
-           *
-           * DOM 6.966666  -> metadata 7
-           * DOM 4.866666  -> metadata 4
-           * DOM 3.433333  -> metadata 3
-           * DOM 13.266666 -> metadata 13
-           * DOM 24.933333 -> metadata 24
-           *
-           * 1.1 seconds covers the cases observed
-           * during the multi-video carousel tests.
-           */
           const durationMatches = resources.filter((resource) => {
             if (
               resource.duration === null ||
@@ -326,33 +325,11 @@ async function scanPost() {
           }
 
           /*
-           * CAROUSEL CONTEXT
+           * Prefer carousel-specific DASH resources when
+           * they exist inside the valid duration window.
            *
-           * We validated a real failure where a
-           * generic "clips" resource had an almost
-           * perfect duration match but belonged to
-           * another Instagram post.
-           *
-           * Wrong:
-           *
-           * clips
-           * duration 7
-           * difference 0.033334
-           *
-           * Correct:
-           *
-           * carousel_item
-           * duration 6
-           * difference 0.966666
-           *
-           * Therefore, when carousel-specific DASH
-           * resources exist inside the valid duration
-           * window, context takes priority over raw
-           * duration proximity.
-           *
-           * If no carousel resource exists, we fall
-           * back to all duration matches. This keeps
-           * standalone/Reel detection working.
+           * This prevents an old generic "clips" resource
+           * with a closer duration from stealing the match.
            */
           const carouselMatches = durationMatches.filter((resource) =>
             resource.encodeTag.toLowerCase().includes("carousel_item"),
@@ -361,10 +338,6 @@ async function scanPost() {
           const matching =
             carouselMatches.length > 0 ? carouselMatches : durationMatches;
 
-          /*
-           * Group all representations belonging
-           * to the same Instagram video asset.
-           */
           const groups = new Map();
 
           for (const resource of matching) {
@@ -377,7 +350,6 @@ async function scanPost() {
 
           const assets = [...groups.entries()].map(([assetId, variants]) => ({
             assetId,
-
             variants,
 
             durationDifference: Math.min(
@@ -391,16 +363,6 @@ async function scanPost() {
             ),
           }));
 
-          /*
-           * We are now comparing assets from the
-           * appropriate media context.
-           *
-           * Priority:
-           *
-           * 1. closest duration
-           * 2. most available representations
-           * 3. most recently loaded asset
-           */
           assets.sort((a, b) => {
             if (a.durationDifference !== b.durationDifference) {
               return a.durationDifference - b.durationDifference;
@@ -419,14 +381,6 @@ async function scanPost() {
             return null;
           }
 
-          /*
-           * Once the correct asset has been
-           * identified, choose maximum visual
-           * quality.
-           *
-           * Resolution first.
-           * Bitrate second.
-           */
           return [...asset.variants].sort((a, b) => {
             if (b.resolution !== a.resolution) {
               return b.resolution - a.resolution;
@@ -441,11 +395,6 @@ async function scanPost() {
         // --------------------------------------------------
 
         async function collectVideo(video, poster = "") {
-          /*
-           * Instagram may need a short moment
-           * to expose the DASH resource after
-           * the slide becomes active.
-           */
           for (let attempt = 0; attempt < 4; attempt++) {
             const variant = findBestVideoVariant(video);
 
@@ -458,7 +407,6 @@ async function scanPost() {
                 assetId: variant.assetId,
 
                 width: video.videoWidth || 0,
-
                 height: video.videoHeight || 0,
 
                 duration: video.duration,
@@ -466,7 +414,6 @@ async function scanPost() {
                 bitrate: variant.bitrate,
 
                 quality: variant.quality,
-
                 resolution: variant.resolution,
 
                 encodeTag: variant.encodeTag,
@@ -484,10 +431,6 @@ async function scanPost() {
         }
 
         async function collectActiveSlide() {
-          /*
-           * Allow the carousel animation
-           * to settle.
-           */
           await sleep(100);
 
           let active = getActiveMediaElement();
@@ -496,20 +439,11 @@ async function scanPost() {
             return false;
           }
 
-          // ---------------- VIDEO ----------------
-
           if (active.tagName === "VIDEO") {
             return collectVideo(active);
           }
 
-          // ---------------- IMAGE ----------------
-
           if (active.tagName === "IMG") {
-            /*
-             * Instagram sometimes exposes the
-             * video cover before the VIDEO element
-             * becomes the closest active media.
-             */
             if (isVideoCoverImage(active)) {
               for (let attempt = 0; attempt < 4; attempt++) {
                 await sleep(200);
@@ -524,15 +458,6 @@ async function scanPost() {
               return false;
             }
 
-            /*
-             * Prefer src over currentSrc.
-             *
-             * currentSrc may point to Instagram's
-             * reduced display representation
-             * (for example p480), while src can
-             * expose the higher-quality signed
-             * source.
-             */
             const url = active.src || active.currentSrc;
 
             if (!url) {
@@ -545,7 +470,6 @@ async function scanPost() {
               url,
 
               width: active.naturalWidth,
-
               height: active.naturalHeight,
 
               alt: active.alt || "",
@@ -584,12 +508,6 @@ async function scanPost() {
 
           nextButton.click();
 
-          /*
-           * Enough time for Instagram's
-           * carousel transition and media
-           * loading without making scanning
-           * unnecessarily sluggish.
-           */
           await sleep(550);
         }
 
@@ -610,13 +528,11 @@ async function scanPost() {
 
     if (!result.success) {
       statusElement.textContent = result.error;
-
       return;
     }
 
     sourceInfo = {
       username: sanitizeFilename(result.username || "instagram"),
-
       postUrl: result.postUrl,
     };
 
@@ -626,12 +542,16 @@ async function scanPost() {
       selected: true,
     }));
 
-    countElement.textContent = mediaItems.length;
+    currentFilter = "both";
+
+    filterButtons.forEach((button) => {
+      button.classList.toggle("active", button.dataset.filter === "both");
+    });
 
     statusElement.textContent = "Scan complete";
 
+    mediaFilter.style.display = mediaItems.length ? "grid" : "none";
     controlsElement.style.display = mediaItems.length ? "flex" : "none";
-
     downloadArea.style.display = mediaItems.length ? "block" : "none";
 
     selectAll.checked = true;
@@ -653,7 +573,22 @@ async function scanPost() {
 function renderMedia() {
   galleryElement.innerHTML = "";
 
-  mediaItems.forEach((item, index) => {
+  const visibleMedia = getVisibleMedia();
+
+  countElement.textContent = visibleMedia.length;
+
+  if (currentFilter === "image") {
+    countLabel.textContent =
+      visibleMedia.length === 1 ? "image detected" : "images detected";
+  } else if (currentFilter === "video") {
+    countLabel.textContent =
+      visibleMedia.length === 1 ? "video detected" : "videos detected";
+  } else {
+    countLabel.textContent =
+      visibleMedia.length === 1 ? "media detected" : "media detected";
+  }
+
+  visibleMedia.forEach((item) => {
     const container = document.createElement("div");
 
     container.className = item.selected ? "media selected" : "media";
@@ -664,11 +599,6 @@ function renderMedia() {
       if (item.poster) {
         image.src = item.poster;
       } else {
-        /*
-         * Empty transparent preview.
-         * We don't use the MP4 itself
-         * as an IMG source.
-         */
         image.src =
           "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
       }
@@ -678,26 +608,26 @@ function renderMedia() {
         (item.quality ? ` · ${item.quality}` : "");
     } else {
       image.src = item.url;
-
       image.title = `${item.width} × ${item.height}`;
     }
 
     const check = document.createElement("div");
 
     check.className = "check";
-
     check.textContent = "✓";
 
     const number = document.createElement("div");
 
     number.className = "media-number";
 
-    number.textContent = index + 1;
+    /*
+     * Keep the original post/carousel position
+     * even while filtering.
+     */
+    number.textContent = item.index + 1;
 
     container.appendChild(image);
-
     container.appendChild(check);
-
     container.appendChild(number);
 
     if (item.type === "video") {
@@ -723,14 +653,18 @@ function renderMedia() {
 }
 
 function updateSelectionUI() {
-  const selected = mediaItems.filter((item) => item.selected);
+  const visibleMedia = getVisibleMedia();
 
-  selectedCount.textContent = `${selected.length} selected`;
+  const selectedVisible = visibleMedia.filter((item) => item.selected);
+
+  selectedCount.textContent = `${selectedVisible.length} selected`;
 
   selectAll.checked =
-    mediaItems.length > 0 && selected.length === mediaItems.length;
+    visibleMedia.length > 0 && selectedVisible.length === visibleMedia.length;
 
-  downloadButton.disabled = selected.length === 0;
+  selectAll.disabled = visibleMedia.length === 0;
+
+  downloadButton.disabled = selectedVisible.length === 0;
 }
 
 // --------------------------------------------------
@@ -738,7 +672,11 @@ function updateSelectionUI() {
 // --------------------------------------------------
 
 async function downloadSelected() {
-  const selected = mediaItems.filter((item) => item.selected);
+  /*
+   * Download only selected media currently visible
+   * through the active filter.
+   */
+  const selected = getVisibleMedia().filter((item) => item.selected);
 
   if (!selected.length) {
     return;
@@ -747,7 +685,6 @@ async function downloadSelected() {
   downloadButton.disabled = true;
 
   downloadButton.classList.remove("complete");
-
   downloadButton.style.setProperty("--progress", "0%");
 
   downloadButtonText.textContent = `Downloading… 0 / ${selected.length}`;
@@ -759,15 +696,6 @@ async function downloadSelected() {
   for (const item of selected) {
     const extension = item.type === "video" ? "mp4" : getExtension(item.url);
 
-    /*
-     * Preserve the original
-     * carousel position.
-     *
-     * If the user downloads
-     * slides 2 and 5 only,
-     * filenames remain
-     * 02 and 05.
-     */
     const number = String(item.index + 1).padStart(2, "0");
 
     const filename =
@@ -797,7 +725,6 @@ async function downloadSelected() {
 
   if (completed === selected.length) {
     downloadButton.style.setProperty("--progress", "100%");
-
     downloadButton.classList.add("complete");
 
     downloadButtonText.textContent = "✓ Download complete";
