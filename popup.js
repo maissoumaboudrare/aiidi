@@ -84,12 +84,25 @@ async function scanPost() {
       currentWindow: true,
     });
 
+    if (!tab?.url) {
+      throw new Error("Unable to read the current tab URL.");
+    }
+
+    const adapter = getAdapterForUrl(tab.url);
+
+    if (!adapter) {
+      statusElement.textContent = "Unsupported site";
+      return;
+    }
+
+    statusElement.textContent = `Scanning ${adapter.name}…`;
+
     const results = await chrome.scripting.executeScript({
       target: {
         tabId: tab.id,
       },
 
-      func: scanInstagramPost,
+      func: adapter.scan,
     });
 
     const result = results?.[0]?.result;
