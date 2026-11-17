@@ -1,4 +1,8 @@
+
 const scanButton = document.querySelector("#scanButton");
+const scanProfileButton = document.querySelector("#scanProfileButton");
+const profileScanStatus = document.querySelector("#profileScanStatus");
+
 const downloadButton = document.querySelector("#downloadButton");
 const downloadButtonText = document.querySelector("#downloadButtonText");
 const statusElement = document.querySelector("#status");
@@ -16,8 +20,14 @@ const filterButtons = [...document.querySelectorAll(".filter-button")];
 let mediaItems = [];
 let sourceInfo = null;
 let currentFilter = "both";
+let discoveredProfile = null;
+
+// --------------------------------------------------
+// EVENTS
+// --------------------------------------------------
 
 scanButton.addEventListener("click", scanPost);
+scanProfileButton.addEventListener("click", scanProfile);
 downloadButton.addEventListener("click", downloadSelected);
 
 selectAll.addEventListener("change", () => {
@@ -43,6 +53,10 @@ filterButtons.forEach((button) => {
   });
 });
 
+// --------------------------------------------------
+// HELPERS
+// --------------------------------------------------
+
 function getVisibleMedia() {
   if (currentFilter === "both") {
     return mediaItems;
@@ -58,14 +72,10 @@ function resetDownloadUI() {
   downloadStatus.textContent = "";
 }
 
-// --------------------------------------------------
-// SCAN
-// --------------------------------------------------
+function resetMediaUI() {
+  mediaItems = [];
+  sourceInfo = null;
 
-async function scanPost() {
-  scanButton.disabled = true;
-
-  statusElement.textContent = "Scanning post…";
   countElement.textContent = "0";
   countLabel.textContent = "media detected";
 
@@ -75,18 +85,37 @@ async function scanPost() {
   downloadArea.style.display = "none";
 
   resetDownloadUI();
+}
 
-  mediaItems = [];
+async function getActiveTab() {
+  const [tab] = await chrome.tabs.query({
+    active: true,
+    currentWindow: true,
+  });
+
+  if (!tab?.id || !tab?.url) {
+    throw new Error("Unable to access the current tab.");
+  }
+
+  return tab;
+}
+
+// --------------------------------------------------
+// SCAN POST
+// --------------------------------------------------
+
+async function scanPost() {
+  scanButton.disabled = true;
+  scanProfileButton.disabled = true;
+
+  statusElement.textContent = "Scanning post…";
+
+  resetMediaUI();
+
+  profileScanStatus.style.display = "none";
 
   try {
-    const [tab] = await chrome.tabs.query({
-      active: true,
-      currentWindow: true,
-    });
-
-    if (!tab?.url) {
-      throw new Error("Unable to read the current tab URL.");
-    }
+    const tab = await getActiveTab();
 
     const adapter = getAdapterForUrl(tab.url);
 
@@ -101,7 +130,6 @@ async function scanPost() {
       target: {
         tabId: tab.id,
       },
-
       func: adapter.scan,
     });
 
@@ -130,7 +158,10 @@ async function scanPost() {
     currentFilter = "both";
 
     filterButtons.forEach((button) => {
-      button.classList.toggle("active", button.dataset.filter === "both");
+      button.classList.toggle(
+        "active",
+        button.dataset.filter === "both",
+      );
     });
 
     statusElement.textContent = "Scan complete";
@@ -143,10 +174,86 @@ async function scanPost() {
 
     renderMedia();
   } catch (error) {
-    console.error(error);
-
+    console.error("Post scan failed:", error);
     statusElement.textContent = "Scan failed";
   } finally {
+    scanButton.disabled = false;
+    scanProfileButton.disabled = false;
+  }
+}
+
+// --------------------------------------------------
+// SCAN PROFILE — v0.11.0
+// --------------------------------------------------
+
+async function scanProfile() {
+  scanProfileButton.disabled = true;
+  scanButton.disabled = true;
+
+  discoveredProfile = null;
+
+  resetMediaUI();
+
+  statusElement.textContent = "Scanning profile…";
+
+  profileScanStatus.style.display = "block";
+  profileScanStatus.textContent = "Discovering publications…";
+
+  try {
+    const tab = await getActiveTab();
+
+    const adapter = getAdapterForUrl(tab.url);
+
+    if (!adapter || adapter.id !== "instagram") {
+      statusElement.textContent = "Unsupported site";
+      profileScanStatus.textContent =
+        "Open an Instagram profile first.";
+      return;
+    }
+
+    const results = await chrome.scripting.executeScript({
+      target: {
+        tabId: tab.id,
+      },
+      func: scanInstagramProfile,
+    });
+
+    const result = results?.[0]?.result;
+
+    if (!result) {
+      throw new Error("No response received from profile scanner.");
+    }
+
+    if (!result.success) {
+      statusElement.textContent = "Profile scan failed";
+      profileScanStatus.textContent =
+        result.error || "Unable to scan profile.";
+      return;
+    }
+
+    discoveredProfile = {
+      username: result.username,
+      total: result.total,
+      posts: result.posts,
+    };
+
+    statusElement.textContent = "Profile discovery complete";
+
+    profileScanStatus.textContent =
+      `@${result.username} — ${result.total} posts discovered`;
+
+    console.log("AIIDI profile discovery:", discoveredProfile);
+
+    // Discovery only.
+    // Batch media extraction will be added in a later step.
+  } catch (error) {
+    console.error("Profile scan failed:", error);
+
+    statusElement.textContent = "Profile scan failed";
+    profileScanStatus.textContent =
+      "An error occurred while scanning the profile.";
+  } finally {
+    scanProfileButton.disabled = false;
     scanButton.disabled = false;
   }
 }
@@ -164,10 +271,14 @@ function renderMedia() {
 
   if (currentFilter === "image") {
     countLabel.textContent =
-      visibleMedia.length === 1 ? "image detected" : "images detected";
+      visibleMedia.length === 1
+        ? "image detected"
+        : "images detected";
   } else if (currentFilter === "video") {
     countLabel.textContent =
-      visibleMedia.length === 1 ? "video detected" : "videos detected";
+      visibleMedia.length === 1
+        ? "video detected"
+        : "videos detected";
   } else {
     countLabel.textContent = "media detected";
   }
@@ -175,7 +286,9 @@ function renderMedia() {
   visibleMedia.forEach((item) => {
     const container = document.createElement("div");
 
-    container.className = item.selected ? "media selected" : "media";
+    container.className = item.selected
+      ? "media selected"
+      : "media";
 
     const image = document.createElement("img");
 
@@ -204,7 +317,7 @@ function renderMedia() {
 
     number.className = "media-number";
 
-    // Keep original post/carousel position while filtering.
+    // Preserve original carousel position.
     number.textContent = item.index + 1;
 
     container.appendChild(image);
@@ -216,14 +329,15 @@ function renderMedia() {
 
       badge.className = "video-badge";
 
-      badge.textContent = item.quality ? `VIDEO · ${item.quality}` : "VIDEO";
+      badge.textContent = item.quality
+        ? `VIDEO · ${item.quality}`
+        : "VIDEO";
 
       container.appendChild(badge);
     }
 
     container.addEventListener("click", () => {
       item.selected = !item.selected;
-
       renderMedia();
     });
 
@@ -236,12 +350,16 @@ function renderMedia() {
 function updateSelectionUI() {
   const visibleMedia = getVisibleMedia();
 
-  const selectedVisible = visibleMedia.filter((item) => item.selected);
+  const selectedVisible = visibleMedia.filter(
+    (item) => item.selected,
+  );
 
-  selectedCount.textContent = `${selectedVisible.length} selected`;
+  selectedCount.textContent =
+    `${selectedVisible.length} selected`;
 
   selectAll.checked =
-    visibleMedia.length > 0 && selectedVisible.length === visibleMedia.length;
+    visibleMedia.length > 0 &&
+    selectedVisible.length === visibleMedia.length;
 
   selectAll.disabled = visibleMedia.length === 0;
 
@@ -253,9 +371,11 @@ function updateSelectionUI() {
 // --------------------------------------------------
 
 async function downloadSelected() {
-  const selected = getVisibleMedia().filter((item) => item.selected);
+  const selected = getVisibleMedia().filter(
+    (item) => item.selected,
+  );
 
-  if (!selected.length) {
+  if (!selected.length || !sourceInfo) {
     return;
   }
 
@@ -264,19 +384,25 @@ async function downloadSelected() {
   downloadButton.classList.remove("complete");
   downloadButton.style.setProperty("--progress", "0%");
 
-  downloadButtonText.textContent = `Downloading… 0 / ${selected.length}`;
+  downloadButtonText.textContent =
+    `Downloading… 0 / ${selected.length}`;
 
   downloadStatus.textContent = "";
 
   let completed = 0;
 
   for (const item of selected) {
-    const extension = item.type === "video" ? "mp4" : getExtension(item.url);
+    const extension =
+      item.type === "video"
+        ? "mp4"
+        : getExtension(item.url);
 
     const number = String(item.index + 1).padStart(2, "0");
 
     const filename =
-      "MediaCollector/" + `${sourceInfo.username}_` + `${number}.${extension}`;
+      "MediaCollector/" +
+      `${sourceInfo.username}_` +
+      `${number}.${extension}`;
 
     try {
       await chrome.downloads.download({
@@ -288,11 +414,17 @@ async function downloadSelected() {
 
       completed++;
 
-      const progress = Math.round((completed / selected.length) * 100);
+      const progress = Math.round(
+        (completed / selected.length) * 100,
+      );
 
-      downloadButton.style.setProperty("--progress", `${progress}%`);
+      downloadButton.style.setProperty(
+        "--progress",
+        `${progress}%`,
+      );
 
-      downloadButtonText.textContent = `Downloading… ${completed} / ${selected.length}`;
+      downloadButtonText.textContent =
+        `Downloading… ${completed} / ${selected.length}`;
 
       await sleep(150);
     } catch (error) {
@@ -306,11 +438,13 @@ async function downloadSelected() {
 
     downloadButtonText.textContent = "✓ Download complete";
 
-    downloadStatus.textContent = `${completed} files sent to Downloads`;
+    downloadStatus.textContent =
+      `${completed} files sent to Downloads`;
   } else {
     downloadButtonText.textContent = "Download incomplete";
 
-    downloadStatus.textContent = `${completed} / ${selected.length} files sent to Downloads`;
+    downloadStatus.textContent =
+      `${completed} / ${selected.length} files sent to Downloads`;
   }
 
   downloadButton.disabled = false;
@@ -323,7 +457,6 @@ async function downloadSelected() {
 function getExtension(url) {
   try {
     const pathname = new URL(url).pathname;
-
     const match = pathname.match(/\.([a-zA-Z0-9]+)$/);
 
     if (match) {
@@ -339,7 +472,9 @@ function getExtension(url) {
 }
 
 function sanitizeFilename(value) {
-  return value.replace(/[^a-zA-Z0-9._-]/g, "_").replace(/_+/g, "_");
+  return value
+    .replace(/[^a-zA-Z0-9._-]/g, "_")
+    .replace(/_+/g, "_");
 }
 
 function sleep(ms) {

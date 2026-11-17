@@ -44,6 +44,7 @@
       }
 
       #scanButton,
+      #scanProfileButton,
       #downloadButton {
         position: relative;
         overflow: hidden;
@@ -66,6 +67,13 @@
         transition:
           background 0.25s ease,
           color 0.25s ease;
+      }
+
+      #scanProfileButton {
+        margin-top: 0;
+        margin-bottom: 18px;
+        background: #292929;
+        color: #fff;
       }
 
       #downloadButton::before {
@@ -315,6 +323,14 @@
     </header>
 
     <button id="scanButton">Scan Post</button>
+    <button id="scanProfileButton">Scan Profile</button>
+
+    <div
+      id="profileScanStatus"
+      style="display: none; margin: 12px 0; color: #aaa; font-size: 12px"
+    >
+      Ready to scan profile
+    </div>
 
     <div class="summary">
       <div id="count">0</div>
@@ -350,6 +366,7 @@
     </div>
 
     <script src="adapters/instagram.js"></script>
+    <script src="adapters/instagram-profile.js"></script>
     <script src="adapters/router.js"></script>
     <script src="popup.js"></script>
   </body>
