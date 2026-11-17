@@ -21,7 +21,12 @@ let mediaItems = [];
 let sourceInfo = null;
 let currentFilter = "both";
 let discoveredProfile = null;
-let batchRunning = false;
+let activeProfileJobId = null;
+let profileTabId = null;
+let refreshTimer = null;
+let lastJobSignature = "";
+let lastJobStatus = "";
+let currentView = "profile";
 
 // --------------------------------------------------
 // EVENTS
@@ -39,6 +44,7 @@ selectAll.addEventListener("change", () => {
   });
 
   renderMedia();
+  void persistSelection();
 });
 
 filterButtons.forEach((button) => {
@@ -106,6 +112,15 @@ async function getActiveTab() {
 // --------------------------------------------------
 
 async function scanPost() {
+  const activeJob = await getJob();
+  if (activeJob && ["running", "discovering", "starting", "cancel_requested"].includes(activeJob.status) &&
+      Date.now() - activeJob.updatedAt < 30000) {
+    statusElement.textContent = "Stop the profile scan before scanning one post";
+    return;
+  }
+  currentView = "post";
+  activeProfileJobId = null;
+  lastJobSignature = "";
   scanButton.disabled = true;
   scanProfileButton.disabled = true;
 
@@ -152,7 +167,7 @@ async function scanPost() {
 
     mediaItems = result.media.map((item, index) => ({
       ...item,
-      index,
+      index: item.index ?? index,
       selected: true,
     }));
 
@@ -165,7 +180,12 @@ async function scanPost() {
       );
     });
 
-    statusElement.textContent = "Scan complete";
+    const missing = result.diagnostics?.unresolvedSlides || [];
+    statusElement.textContent = missing.length ? "Scan partially complete" : "Scan complete";
+    if (missing.length) {
+      profileScanStatus.style.display = "block";
+      profileScanStatus.textContent = missing.map(item => `Slide ${item.step}: ${item.reason}`).join("; ");
+    }
 
     mediaFilter.style.display = mediaItems.length ? "grid" : "none";
     controlsElement.style.display = mediaItems.length ? "flex" : "none";
@@ -184,156 +204,144 @@ async function scanPost() {
 }
 
 // --------------------------------------------------
-// SCAN PROFILE — v0.11.0
+// FULL PROFILE — tab-based worker with persisted progress
 // --------------------------------------------------
+const JOB_KEY = "aiidiProfileJob";
+const selectionKey = id => `aiidiSelections_${id}`;
+const terminal = new Set(["complete", "failed", "paused"]);
+
+async function getJob() {
+  return (await chrome.storage.local.get(JOB_KEY))[JOB_KEY] || null;
+}
+
+async function startRunner(tab) {
+  // A file-injected runner continues in the Instagram tab after the popup closes.
+  // Each function runs in the same isolated world and can call the others.
+  await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    files: [
+      "adapters/instagram-profile.js",
+      "adapters/instagram.js",
+      "adapters/instagram-batch.js",
+      "adapters/profile-runner.js"
+    ]
+  });
+}
 
 async function scanProfile() {
-  scanProfileButton.disabled = true;
-  scanButton.disabled = true;
-
-  discoveredProfile = null;
-
-  resetMediaUI();
-
-  statusElement.textContent = "Scanning profile…";
-
-  profileScanStatus.style.display = "block";
-  profileScanStatus.textContent = "Discovering publications…";
-
+  currentView = "profile";
   try {
     const tab = await getActiveTab();
-
     const adapter = getAdapterForUrl(tab.url);
-
-    if (!adapter || adapter.id !== "instagram") {
-      statusElement.textContent = "Unsupported site";
-      profileScanStatus.textContent =
-        "Open an Instagram profile first.";
+    const path = new URL(tab.url).pathname.split("/").filter(Boolean);
+    if (!adapter || path.length !== 1 ||
+        ["p", "reel", "reels", "explore", "accounts", "direct", "stories"].includes(path[0].toLowerCase())) {
+      statusElement.textContent = "Open an Instagram profile first";
       return;
     }
-
-    const results = await chrome.scripting.executeScript({
-      target: {
-        tabId: tab.id,
-      },
-      func: scanInstagramProfile,
-    });
-
-    const result = results?.[0]?.result;
-
-    if (!result) {
-      throw new Error("No response received from profile scanner.");
-    }
-
-    if (!result.success) {
-      statusElement.textContent = "Profile scan failed";
-      profileScanStatus.textContent =
-        result.error || "Unable to scan profile.";
+    const existing = await getJob();
+    if (existing && existing.tabId === tab.id &&
+        ["running", "discovering", "starting", "cancel_requested"].includes(existing.status) &&
+        Date.now() - existing.updatedAt < 30000) {
+      statusElement.textContent = "A profile scan is already running";
       return;
     }
-
-    discoveredProfile = {
-      username: result.username,
-      total: result.total,
-      posts: result.posts,
+    // Resume only if the same profile and there are saved posts remaining.
+    const resume = existing && existing.username?.toLowerCase() === path[0].toLowerCase() &&
+      existing.tabId === tab.id && existing.posts?.length &&
+      existing.nextIndex < existing.posts.length && existing.status !== "complete";
+    const job = resume ? {
+      ...existing, status: "starting", updatedAt: Date.now(), fatalError: null
+    } : {
+      id: `${Date.now()}_${tab.id}`, tabId: tab.id, username: path[0],
+      status: "starting", posts: [], total: 0, nextIndex: 0,
+      currentIndex: 0, media: [], errors: [], updatedAt: Date.now()
     };
-
-    statusElement.textContent = "Profile discovery complete";
-
-    profileScanStatus.textContent =
-      `@${result.username} — ${result.total} posts discovered`;
-
-    console.log("AIIDI profile discovery:", discoveredProfile);
-
-    // Safety gate: only three posts, no automatic downloads.
-    const sample = result.posts.slice(0, 3);
-    if (!sample.length) {
-      profileScanStatus.textContent += " — no eligible posts";
-      return;
-    }
-    batchRunning = true;
-    const aggregate = [];
-    const errors = [];
-    for (let i = 0; i < sample.length; i++) {
-      const post = sample[i];
-      const shortcode = post.url.match(/\/(?:p|reel)\/([A-Za-z0-9_-]+)/)?.[1];
-      profileScanStatus.textContent =
-        `@${result.username} — extracting ${i + 1}/${sample.length} (test)`;
-      if (!shortcode) {
-        errors.push(`Post ${i + 1}: invalid URL`);
-        continue;
-      }
-      try {
-        const opened = await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          func: openInstagramProfilePost,
-          args: [shortcode],
-        });
-        if (!opened?.[0]?.result?.success) {
-          throw new Error(opened?.[0]?.result?.error || "Could not open post");
-        }
-        const scanned = await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          func: scanInstagramPost,
-        });
-        const scan = scanned?.[0]?.result;
-        if (!scan?.success) throw new Error(scan?.error || "Scan failed");
-        if (!scan.media?.length) throw new Error("No media found");
-        scan.media.forEach((item, index) => aggregate.push({
-          ...item,
-          index,
-          postIndex: i,
-          shortcode,
-          selected: true,
-        }));
-      } catch (error) {
-        console.error("Batch post failed:", post.url, error);
-        errors.push(`Post ${i + 1}: ${error.message}`);
-      } finally {
-        try {
-          const closed = await chrome.scripting.executeScript({
-            target: { tabId: tab.id }, func: closeInstagramProfilePost,
-          });
-          if (!closed?.[0]?.result) {
-            errors.push("Could not close dialog; stopped for safety");
-            break;
-          }
-        } catch (error) {
-          errors.push("Could not close dialog; stopped for safety");
-          break;
-        }
-      }
-    }
-    sourceInfo = {
-      username: sanitizeFilename(result.username || "instagram"),
-      batch: true,
-    };
-    mediaItems = aggregate;
-    currentFilter = "both";
-    filterButtons.forEach(button =>
-      button.classList.toggle("active", button.dataset.filter === "both")
-    );
-    selectAll.checked = true;
-    mediaFilter.style.display = aggregate.length ? "grid" : "none";
-    controlsElement.style.display = aggregate.length ? "flex" : "none";
-    downloadArea.style.display = aggregate.length ? "block" : "none";
-    statusElement.textContent = errors.length ? "Batch test partially complete" : "Batch test complete";
-    profileScanStatus.textContent =
-      `${sample.length} posts attempted · ${aggregate.length} media · ${errors.length} errors` +
-      (errors.length ? ` — ${errors.join("; ")}` : "");
-    renderMedia();
+    await chrome.storage.local.set({ [JOB_KEY]: job });
+    activeProfileJobId = job.id;
+    profileTabId = tab.id;
+    resetMediaUI();
+    profileScanStatus.style.display = "block";
+    statusElement.textContent = resume ? "Resuming profile scan…" : "Scanning full profile…";
+    await startRunner(tab);
+    await refreshProfileJob();
   } catch (error) {
     console.error("Profile scan failed:", error);
-
-    statusElement.textContent = "Profile scan failed";
-    profileScanStatus.textContent =
-      "An error occurred while scanning the profile.";
-  } finally {
-    batchRunning = false;
-    scanProfileButton.disabled = false;
-    scanButton.disabled = false;
+    statusElement.textContent = "Profile scan could not start";
+    profileScanStatus.style.display = "block";
+    profileScanStatus.textContent = String(error.message || error);
   }
 }
+
+async function stopProfileScan() {
+  const job = await getJob();
+  if (!job || !["running", "discovering", "starting"].includes(job.status)) return;
+  job.status = "cancel_requested";
+  await chrome.storage.local.set({ [JOB_KEY]: job });
+  statusElement.textContent = "Stopping after current publication…";
+}
+
+async function refreshProfileJob() {
+  if (currentView === "post") return;
+  const job = await getJob();
+  if (!job) return;
+  let tab;
+  try { tab = await getActiveTab(); } catch { return; }
+  if (job.tabId !== tab.id) return;
+
+  activeProfileJobId = job.id;
+  profileTabId = job.tabId;
+  profileScanStatus.style.display = "block";
+  const running = ["running", "discovering", "starting", "cancel_requested"].includes(job.status);
+  const stale = running && Date.now() - job.updatedAt > 30000;
+  scanProfileButton.textContent = running && !stale ? "Scan running…" :
+    (job.status !== "complete" && job.posts?.length ? "Resume Full Profile" : "Scan Full Profile");
+  scanProfileButton.disabled = running && !stale;
+  scanButton.disabled = running && !stale;
+  if (typeof stopProfileButton !== "undefined" && stopProfileButton) {
+    stopProfileButton.style.display = running && !stale ? "block" : "none";
+  }
+  const images = (job.media || []).filter(m => m.type === "image").length;
+  const videos = (job.media || []).filter(m => m.type === "video").length;
+  const progress = job.total ? Math.round((job.nextIndex || 0) / job.total * 100) : 0;
+  const phase = stale ? "Interrupted — click Resume Full Profile" :
+    ({ starting: "Starting", discovering: "Discovering publications", running: "Extracting",
+       cancel_requested: "Stopping", paused: "Paused", complete: "Complete", failed: "Failed" }[job.status] || job.status);
+  statusElement.textContent = `@${job.username} — ${phase}`;
+  profileScanStatus.textContent =
+    `${job.nextIndex || 0} / ${job.total || "?"} posts (${progress}%) · ${images} images · ${videos} videos · ${(job.errors || []).length} errors` +
+    (job.completeDiscovery === false ? " · Discovery may be incomplete" : "") +
+    (job.fatalError ? ` · ${job.fatalError}` : "") +
+    (job.errors?.length && terminal.has(job.status) ?
+      ` · Errors: ${job.errors.map(error => `${error.url || `Post ${error.postIndex + 1}`}: ${error.message}`).join(" | ")}` : "");
+  const signature = `${job.id}:${job.media?.length || 0}:${job.status}`;
+  if (signature !== lastJobSignature) {
+    const previous = mediaItems;
+    const selections = (await chrome.storage.local.get(selectionKey(job.id)))[selectionKey(job.id)] || {};
+    mediaItems = (job.media || []).map(item => ({
+      ...item, selected: selections[`${item.postIndex}:${item.index}`] ??
+        previous.find(m => m.postIndex === item.postIndex && m.index === item.index)?.selected ?? true
+    }));
+    sourceInfo = { username: sanitizeFilename(job.username), batch: true };
+    mediaFilter.style.display = mediaItems.length ? "grid" : "none";
+    controlsElement.style.display = mediaItems.length ? "flex" : "none";
+    downloadArea.style.display = mediaItems.length ? "block" : "none";
+    renderMedia();
+    lastJobSignature = signature;
+  }
+}
+
+async function persistSelection() {
+  if (!activeProfileJobId || !sourceInfo?.batch) return;
+  const selected = {};
+  for (const item of mediaItems) selected[`${item.postIndex}:${item.index}`] = item.selected;
+  await chrome.storage.local.set({ [selectionKey(activeProfileJobId)]: selected });
+}
+
+const stopProfileButton = document.querySelector("#stopProfileButton");
+stopProfileButton?.addEventListener("click", stopProfileScan);
+refreshTimer = setInterval(() => void refreshProfileJob().catch(console.error), 1200);
+void refreshProfileJob().catch(console.error);
 
 // --------------------------------------------------
 // GALLERY
@@ -416,6 +424,7 @@ function renderMedia() {
     container.addEventListener("click", () => {
       item.selected = !item.selected;
       renderMedia();
+      void persistSelection();
     });
 
     galleryElement.appendChild(container);
@@ -476,11 +485,10 @@ async function downloadSelected() {
 
     const number = String(item.index + 1).padStart(2, "0");
 
-    const filename = sourceInfo.batch
-      ? `MediaCollector/${sourceInfo.username}/` +
-        `${String(item.postIndex + 1).padStart(3, "0")}_${number}.${extension}`
-      : "MediaCollector/" +
-        `${sourceInfo.username}_${number}.${extension}`;
+    const filename =
+      "MediaCollector/" +
+      `${sourceInfo.username}/` +
+      `${item.shortcode || new URL(sourceInfo.postUrl).pathname.split("/").filter(Boolean).pop()}_${number}.${extension}`;
 
     try {
       await chrome.downloads.download({
@@ -514,15 +522,15 @@ async function downloadSelected() {
     downloadButton.style.setProperty("--progress", "100%");
     downloadButton.classList.add("complete");
 
-    downloadButtonText.textContent = "✓ Download complete";
+    downloadButtonText.textContent = "✓ Downloads queued";
 
     downloadStatus.textContent =
-      `${completed} files sent to Downloads`;
+      `${completed} files queued in Downloads`;
   } else {
     downloadButtonText.textContent = "Download incomplete";
 
     downloadStatus.textContent =
-      `${completed} / ${selected.length} files sent to Downloads`;
+      `${completed} / ${selected.length} files queued in Downloads`;
   }
 
   downloadButton.disabled = false;
