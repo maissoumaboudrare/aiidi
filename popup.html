@@ -44,6 +44,7 @@
       }
 
       #scanButton,
+      #scanProfileButton,
       #downloadButton {
         position: relative;
         overflow: hidden;
@@ -66,6 +67,13 @@
         transition:
           background 0.25s ease,
           color 0.25s ease;
+      }
+
+      #scanProfileButton {
+        margin-top: 0;
+        margin-bottom: 18px;
+        background: #292929;
+        color: #fff;
       }
 
       #downloadButton::before {
@@ -132,6 +140,46 @@
       .label {
         color: #888;
         font-size: 12px;
+      }
+
+      /* --------------------------------------------------
+         MEDIA FILTER
+         -------------------------------------------------- */
+
+      #mediaFilter {
+        display: none;
+
+        grid-template-columns: repeat(3, 1fr);
+
+        padding: 3px;
+        margin-bottom: 14px;
+
+        background: #1c1c1c;
+        border-radius: 7px;
+      }
+
+      .filter-button {
+        padding: 7px 8px;
+
+        border: 0;
+        border-radius: 5px;
+
+        background: transparent;
+        color: #777;
+
+        font-size: 11px;
+        font-weight: 600;
+
+        cursor: pointer;
+
+        transition:
+          background 0.2s ease,
+          color 0.2s ease;
+      }
+
+      .filter-button.active {
+        background: #fff;
+        color: #111;
       }
 
       #controls {
@@ -234,6 +282,24 @@
         color: transparent;
       }
 
+      .video-badge {
+        position: absolute;
+
+        top: 6px;
+        right: 6px;
+
+        padding: 3px 5px;
+
+        border-radius: 4px;
+
+        background: rgba(0, 0, 0, 0.75);
+
+        color: #fff;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+      }
+
       #downloadArea {
         display: none;
       }
@@ -257,10 +323,28 @@
     </header>
 
     <button id="scanButton">Scan Post</button>
+    <button id="scanProfileButton">Scan Full Profile</button>
+
+    <button id="stopProfileButton" style="display:none; background:#393939; color:#fff; margin-top:0">Stop after current post</button>
+
+    <div
+      id="profileScanStatus"
+      style="display: none; margin: 12px 0; color: #aaa; font-size: 12px"
+    >
+      Ready to scan profile
+    </div>
 
     <div class="summary">
       <div id="count">0</div>
-      <div class="label">images detected</div>
+      <div class="label" id="countLabel">media detected</div>
+    </div>
+
+    <div id="mediaFilter">
+      <button class="filter-button active" data-filter="both">Both</button>
+
+      <button class="filter-button" data-filter="image">Images</button>
+
+      <button class="filter-button" data-filter="video">Videos</button>
     </div>
 
     <div id="controls">
@@ -270,19 +354,22 @@
         Select all
       </label>
 
-      <span id="selectedCount"> 0 selected </span>
+      <span id="selectedCount">0 selected</span>
     </div>
 
     <div id="gallery"></div>
 
     <div id="downloadArea">
       <button id="downloadButton">
-        <span id="downloadButtonText"> Download Selected </span>
+        <span id="downloadButtonText">Download Selected</span>
       </button>
 
       <div id="downloadStatus"></div>
     </div>
 
+    <script src="adapters/instagram.js"></script>
+    <script src="adapters/instagram-profile.js"></script>
+    <script src="adapters/router.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>
