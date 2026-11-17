@@ -21,6 +21,7 @@ let mediaItems = [];
 let sourceInfo = null;
 let currentFilter = "both";
 let discoveredProfile = null;
+let batchRunning = false;
 
 // --------------------------------------------------
 // EVENTS
@@ -244,8 +245,83 @@ async function scanProfile() {
 
     console.log("AIIDI profile discovery:", discoveredProfile);
 
-    // Discovery only.
-    // Batch media extraction will be added in a later step.
+    // Safety gate: only three posts, no automatic downloads.
+    const sample = result.posts.slice(0, 3);
+    if (!sample.length) {
+      profileScanStatus.textContent += " — no eligible posts";
+      return;
+    }
+    batchRunning = true;
+    const aggregate = [];
+    const errors = [];
+    for (let i = 0; i < sample.length; i++) {
+      const post = sample[i];
+      const shortcode = post.url.match(/\/(?:p|reel)\/([A-Za-z0-9_-]+)/)?.[1];
+      profileScanStatus.textContent =
+        `@${result.username} — extracting ${i + 1}/${sample.length} (test)`;
+      if (!shortcode) {
+        errors.push(`Post ${i + 1}: invalid URL`);
+        continue;
+      }
+      try {
+        const opened = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: openInstagramProfilePost,
+          args: [shortcode],
+        });
+        if (!opened?.[0]?.result?.success) {
+          throw new Error(opened?.[0]?.result?.error || "Could not open post");
+        }
+        const scanned = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: scanInstagramPost,
+        });
+        const scan = scanned?.[0]?.result;
+        if (!scan?.success) throw new Error(scan?.error || "Scan failed");
+        if (!scan.media?.length) throw new Error("No media found");
+        scan.media.forEach((item, index) => aggregate.push({
+          ...item,
+          index,
+          postIndex: i,
+          shortcode,
+          selected: true,
+        }));
+      } catch (error) {
+        console.error("Batch post failed:", post.url, error);
+        errors.push(`Post ${i + 1}: ${error.message}`);
+      } finally {
+        try {
+          const closed = await chrome.scripting.executeScript({
+            target: { tabId: tab.id }, func: closeInstagramProfilePost,
+          });
+          if (!closed?.[0]?.result) {
+            errors.push("Could not close dialog; stopped for safety");
+            break;
+          }
+        } catch (error) {
+          errors.push("Could not close dialog; stopped for safety");
+          break;
+        }
+      }
+    }
+    sourceInfo = {
+      username: sanitizeFilename(result.username || "instagram"),
+      batch: true,
+    };
+    mediaItems = aggregate;
+    currentFilter = "both";
+    filterButtons.forEach(button =>
+      button.classList.toggle("active", button.dataset.filter === "both")
+    );
+    selectAll.checked = true;
+    mediaFilter.style.display = aggregate.length ? "grid" : "none";
+    controlsElement.style.display = aggregate.length ? "flex" : "none";
+    downloadArea.style.display = aggregate.length ? "block" : "none";
+    statusElement.textContent = errors.length ? "Batch test partially complete" : "Batch test complete";
+    profileScanStatus.textContent =
+      `${sample.length} posts attempted · ${aggregate.length} media · ${errors.length} errors` +
+      (errors.length ? ` — ${errors.join("; ")}` : "");
+    renderMedia();
   } catch (error) {
     console.error("Profile scan failed:", error);
 
@@ -253,6 +329,7 @@ async function scanProfile() {
     profileScanStatus.textContent =
       "An error occurred while scanning the profile.";
   } finally {
+    batchRunning = false;
     scanProfileButton.disabled = false;
     scanButton.disabled = false;
   }
@@ -399,10 +476,11 @@ async function downloadSelected() {
 
     const number = String(item.index + 1).padStart(2, "0");
 
-    const filename =
-      "MediaCollector/" +
-      `${sourceInfo.username}_` +
-      `${number}.${extension}`;
+    const filename = sourceInfo.batch
+      ? `MediaCollector/${sourceInfo.username}/` +
+        `${String(item.postIndex + 1).padStart(3, "0")}_${number}.${extension}`
+      : "MediaCollector/" +
+        `${sourceInfo.username}_${number}.${extension}`;
 
     try {
       await chrome.downloads.download({
