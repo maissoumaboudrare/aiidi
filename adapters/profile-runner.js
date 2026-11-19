@@ -3,7 +3,7 @@
 (() => {
   if (globalThis.__aiidiProfileRunnerActive) return;
   globalThis.__aiidiProfileRunnerActive = true;
-  const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const imiximikPause = ms => new Promise(resolve => setTimeout(resolve, ms));
   const key = 'aiidiProfileJob';
   const read = async () => (await chrome.storage.local.get(key))[key];
   const write = async job => chrome.storage.local.set({ [key]: job });
@@ -66,7 +66,7 @@
           if (!result.success) throw new Error(result.error || 'Open post failed');
           opened = true;
           // Give media resources time to populate before collecting.
-          await sleep(900);
+          await imiximikPause(900);
           const scanned = await timeout(scanInstagramPost(job.username), 90000, 'Scan post');
           if (!scanned.success) throw new Error(scanned.error || 'Scan failed');
           if (!scanned.media?.length && !scanned.diagnostics?.unresolvedSlides?.length) throw new Error('No media found (no scanner diagnostic)');
@@ -95,7 +95,7 @@
         job.status = stop ? 'paused' : 'running';
         await write(job);
         if (stop) return;
-        await sleep(250);
+        await imiximikPause(250);
       }
       job.status = 'complete';
       job.updatedAt = Date.now();

@@ -1,6 +1,6 @@
 async function scanInstagramPost(expectedUsername = null) {
   const deadline = Date.now() + 80000;
-  const sleep = async (ms) => {
+  const imiximikPause = async (ms) => {
     await new Promise((resolve) => setTimeout(resolve, ms));
     if (Date.now() > deadline) throw new Error("Post scan time limit reached");
   };
@@ -197,7 +197,7 @@ async function scanInstagramPost(expectedUsername = null) {
   async function waitForSlide(previousSignature = null) {
     let last = null, stable = 0;
     for (let attempt = 0; attempt < 30; attempt++) {
-      await sleep(150);
+      await imiximikPause(150);
       const signature = slideSignature();
       if (signature && signature !== previousSignature) {
         stable = signature === last ? stable + 1 : 1;
@@ -302,14 +302,14 @@ async function scanInstagramPost(expectedUsername = null) {
         return true;
       }
 
-      await sleep(200);
+      await imiximikPause(200);
     }
 
     return false;
   }
 
   async function collectActiveSlide(slideIndex) {
-    await sleep(100);
+    await imiximikPause(100);
 
     let active = getActiveMediaElement();
 

@@ -1,107 +1,106 @@
 # AIIDI — Media Collector
 
-Collectez les images et les vidéos d'Instagram, choisissez les médias à conserver et téléchargez-les dans un dossier organisé par profil.
+Collect images and videos from Instagram, choose which media to keep, and download them into folders organized by profile.
 
-**Version validée : [v0.12.3](https://github.com/maissoumaboudrare/aiidi/tree/v0.12.3).**
+**Validated version — [v0.12.3](https://github.com/maissoumaboudrare/aiidi/tree/v0.12.3).**
 
-AIIDI est une extension Chromium Manifest V3 pour ordinateur. Elle apparaît dans le navigateur sous le nom **Media Collector**. Son interface utilise des boutons en anglais, repris tels quels dans ce guide.
+AIIDI is a Chromium Manifest V3 extension for desktop computers. It appears in your browser as **Media Collector**. Its interface uses English button labels, reproduced throughout this guide.
 
+**Video audio** — Audio retrieval is not supported in v0.12.3. Downloaded videos may have no sound. AIIDI keeps the video file supplied by Instagram without retrieving or merging a separate audio track. If the source file already contains sound, it is preserved.
 
-**Audio des vidéos** : la récupération de l'audio n'est pas prise en charge dans v0.12.3. Les vidéos téléchargées peuvent être dépourvues de son. AIIDI conserve le fichier vidéo fourni par Instagram sans récupérer ni assembler de piste audio séparée. Si le fichier source contient déjà du son, celui-ci est conservé.
+## Features
 
-## Fonctionnalités
+- **Scan Post** extracts media from a post opened from a profile.
+- **Scan Full Profile** browses a profile grid and scans the posts it discovers, including links to reels present in that grid.
+- **Mixed carousels** include images and videos, with their original positions preserved.
+- **Profile verification** excludes posts whose identified author does not match the profile being scanned during a full-profile scan.
+- **Preview gallery** displays thumbnails, media positions, and video badges. Videos are represented by a preview image.
+- **Filters and selection** show images, videos, or both, and let you select files individually or as a group.
+- **Full-profile progress** displays progress, image and video counts, and errors for each post.
+- **Stop and resume** lets you request a stop after the current post and resume an incomplete scan in the same tab.
+- **Manual downloads** save only the selected media in the current filter.
+- **Automatic organization** saves files in `MediaCollector/nomduprofil/`, with the post code and media position in each filename.
 
-- **Scan Post** : extraire les médias de la publication ouverte depuis un profil.
-- **Scan Full Profile** : parcourir la grille d'un profil et analyser les publications découvertes, y compris les liens vers des reels présents dans cette grille.
-- **Carrousels mixtes** : récupérer les images et les vidéos en conservant leur position dans la publication.
-- **Vérification du profil** : écarter les publications dont l'auteur identifié ne correspond pas au profil analysé lors d'un scan complet.
-- **Galerie de prévisualisation** : voir les miniatures, la position des médias et un badge pour les vidéos. Les vidéos sont représentées par une image d'aperçu.
-- **Filtres et sélection** : afficher les images, les vidéos ou les deux, puis sélectionner les fichiers individuellement ou en groupe.
-- **Suivi du scan complet** : consulter la progression, les nombres d'images et de vidéos, ainsi que les erreurs par publication.
-- **Arrêt et reprise** : demander un arrêt après la publication en cours et reprendre un scan incomplet dans le même onglet.
-- **Téléchargement manuel** : lancer uniquement le téléchargement des médias sélectionnés dans le filtre affiché.
-- **Classement automatique** : ranger les fichiers dans `MediaCollector/nomduprofil/`, avec le code de la publication et la position du média dans leur nom.
+## Install the extension
 
-## Installer l'extension
+### Requirements
 
-### Prérequis
+- A computer with a recent version of Google Chrome. The extension targets Chromium browsers. Compatibility with each other browser remains to be verified.
+- An Internet connection and an Instagram session signed in through that browser.
+- Access to the posts you want to collect.
 
-- Un ordinateur avec une version récente de Google Chrome. L'extension cible les navigateurs Chromium ; la compatibilité avec chaque autre navigateur reste à vérifier.
-- Une connexion Internet et une session Instagram ouverte dans ce navigateur.
-- Un accès aux publications que vous souhaitez collecter.
+The installation below uses the project files. You do not need VS Code, Node.js, or Git to use the extension.
 
-L'installation décrite ici se fait depuis les fichiers du projet. Vous n'avez besoin ni de VS Code, ni de Node.js, ni de Git pour utiliser l'extension.
+### Install the validated version
 
-### Installation depuis la version validée
+1. [Download the v0.12.3 ZIP](https://github.com/maissoumaboudrare/aiidi/archive/refs/tags/v0.12.3.zip).
+2. Extract the archive into a folder you will keep on your computer.
+3. In Chrome, open `chrome://extensions`.
+4. Enable **Developer mode** at the top of the page.
+5. Click **Load unpacked**.
+6. Select the extracted folder that directly contains `manifest.json`, rather than the ZIP file.
+7. Check that **Media Collector**, version **0.12.3**, appears and is enabled.
+8. Pin Media Collector from your browser's Extensions menu so its button is easy to find.
+9. Open Instagram, sign in if necessary, and reload the page if it was already open before installation.
 
-1. [Téléchargez le ZIP de v0.12.3](https://github.com/maissoumaboudrare/aiidi/archive/refs/tags/v0.12.3.zip).
-2. Décompressez l'archive dans un dossier que vous conserverez sur votre ordinateur.
-3. Dans Chrome, ouvrez `chrome://extensions`.
-4. Activez **Mode développeur** en haut de la page.
-5. Cliquez sur **Charger l'extension non empaquetée** (*Load unpacked*).
-6. Sélectionnez le dossier décompressé qui contient directement `manifest.json`, et non le fichier ZIP.
-7. Vérifiez que **Media Collector**, version **0.12.3**, apparaît et est activée.
-8. Depuis le menu Extensions du navigateur, épinglez Media Collector pour retrouver son bouton facilement.
-9. Ouvrez Instagram, connectez-vous si nécessaire, puis rechargez la page si elle était déjà ouverte avant l'installation.
+Keep the extension folder in its original location and leave Developer mode enabled. This procedure follows the [official Chrome guide to loading an unpacked extension](https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#load-unpacked).
 
-Conservez le dossier de l'extension à son emplacement et laissez le mode développeur activé. Cette procédure suit le [guide officiel d'installation locale de Chrome](https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#load-unpacked).
+## Use AIIDI
 
-## Utiliser AIIDI
-
-[Guide rapide illustré (PDF)](docs/aiidi-guide-rapide.pdf) pour télécharger les médias d'une publication ou d'un profil.
+[Illustrated quick guide in French (PDF)](docs/aiidi-guide-rapide.pdf) for downloading media from a post or profile.
 
 [English version (PDF)](docs/aiidi-quick-guide.pdf).
 
-### Collecter une seule publication
+### Collect a single post
 
-1. Ouvrez le profil Instagram concerné.
-2. Cliquez sur une publication dans sa grille pour l'ouvrir dans la fenêtre superposée à la page du profil.
-3. Ouvrez Media Collector et cliquez sur **Scan Post**.
-4. Gardez la publication et la fenêtre de l'extension ouvertes pendant l'analyse, puis attendez le résultat.
-5. Vérifiez la galerie, ajustez la sélection, puis cliquez sur **Download Selected**.
+1. Open the relevant Instagram profile.
+2. Click a post in its grid to open it in an overlay above the profile page.
+3. Open Media Collector and click **Scan Post**.
+4. Keep both the post and the extension popup open during the scan, then wait for the result.
+5. Review the gallery, adjust your selection, and click **Download Selected**.
 
-Pour un carrousel, l'extension revient au début avant de parcourir les médias. Il n'est pas nécessaire de se placer manuellement sur sa première image.
+For a carousel, the extension returns to the beginning before going through the media. You do not need to move to its first image yourself.
 
-Dans cette version, **Scan Post attend une publication ouverte dans la fenêtre superposée d'Instagram**. Si vous arrivez directement sur une URL de publication et qu'aucune fenêtre superposée n'est ouverte, revenez au profil et ouvrez la publication depuis sa grille.
+In this version, **Scan Post expects a post opened in Instagram's overlay**. If you open a post URL directly and no overlay is present, return to the profile and open the post from its grid.
 
-### Collecter un profil
+### Collect a profile
 
-1. Ouvrez la page du profil, par exemple `https://www.instagram.com/nomduprofil/`, et placez-vous en haut de sa grille principale.
-2. Fermez toute publication ouverte en superposition.
-3. Ouvrez Media Collector et cliquez sur **Scan Full Profile**.
-4. L'extension fait défiler le profil pour découvrir ses publications, puis les ouvre et les analyse une par une.
-5. Attendez la fin du scan, consultez les éventuelles erreurs et choisissez les médias à télécharger.
+1. Open the profile page, such as `https://www.instagram.com/nomduprofil/`, and go to the top of its main grid.
+2. Close any post open in an overlay.
+3. Open Media Collector and click **Scan Full Profile**.
+4. The extension scrolls through the profile to discover posts, then opens and scans them one at a time.
+5. Wait for the scan to finish, review any errors, and choose which media to download.
 
-Le scan complet continue si vous fermez la fenêtre de l'extension. Pour consulter sa progression, rouvrez Media Collector depuis le même onglet Instagram.
+The full-profile scan continues if you close the extension popup. Reopen Media Collector from the same Instagram tab to check its progress.
 
-Pendant le scan, gardez cet onglet ouvert et évitez d'y naviguer, de faire défiler la page ou de changer de publication manuellement. Ne lancez qu'un scan de profil à la fois.
+During the scan, keep that tab open and avoid navigating, scrolling, or switching posts manually. Run only one profile scan at a time.
 
-**Scan Full Profile ne déclenche aucun téléchargement automatique.** Les fichiers sont téléchargés uniquement après un clic sur **Download Selected**.
+**Scan Full Profile does not start downloads automatically.** Files are downloaded only after you click **Download Selected**.
 
-### Arrêter et reprendre un scan complet
+### Stop and resume a full-profile scan
 
-Pendant l'extraction, **Stop after current post** demande un arrêt après la publication en cours. Une fois le scan arrêté, **Resume Full Profile** permet de reprendre les publications restantes.
+During extraction, **Stop after current post** requests a stop after the current post. Once the scan has stopped, **Resume Full Profile** lets you continue with the remaining posts.
 
-Pour reprendre, revenez sur la page du même profil dans le même onglet, puis ouvrez l'extension. La progression et les sélections du scan complet sont enregistrées localement. Une reprise dans un nouvel onglet ou après la fermeture du navigateur n'est pas garantie.
+To resume, return to the same profile page in the same tab, then open the extension. Full-profile progress and selections are saved locally. Resuming in a new tab or after closing the browser is not guaranteed.
 
-L'arrêt n'est pas immédiat. Pendant la phase initiale de découverte, attendez le début de l'extraction pour demander l'arrêt.
+Stopping is not immediate. During the initial discovery phase, wait for extraction to begin before requesting a stop.
 
-### Filtrer et sélectionner
+### Filter and select
 
-| Contrôle | Utilisation |
+| Control | Action |
 | --- | --- |
-| **Both** | Afficher les images et les vidéos. |
-| **Images** | Afficher uniquement les images. |
-| **Videos** | Afficher uniquement les vidéos. |
-| Clic sur une miniature | Sélectionner ou désélectionner le média. |
-| **Select all** | Sélectionner ou désélectionner tous les médias du filtre actif. |
-| **Download Selected** | Télécharger les médias sélectionnés du filtre actif. |
+| **Both** | Show images and videos. |
+| **Images** | Show images only. |
+| **Videos** | Show videos only. |
+| Click a thumbnail | Select or deselect that media item. |
+| **Select all** | Select or deselect all media in the current filter. |
+| **Download Selected** | Download selected media in the current filter. |
 
-Les médias sont sélectionnés par défaut. Changer de filtre conserve leur sélection : avec **Videos** actif, les images restent sélectionnées mais ne seront pas téléchargées. Revenez sur **Both** pour télécharger l'ensemble de votre sélection.
+Media are selected by default. Switching filters preserves selections. With **Videos** active, images remain selected but will not be downloaded. Return to **Both** to download your entire selection.
 
-## Retrouver les téléchargements
+## Find your downloads
 
-Les fichiers sont enregistrés dans le dossier de téléchargement configuré dans votre navigateur, sous cette arborescence :
+Files are saved under the download folder configured in your browser, using this structure. In the examples, `nomduprofil` represents the profile's username.
 
 ```text
 MediaCollector/
@@ -111,90 +110,102 @@ MediaCollector/
     └── DXm0XJGCpt4_06.jpg
 ```
 
-Le préfixe correspond au code de la publication. Le numéro indique la position du média dans le carrousel, à partir de `01`. Si vous ne sélectionnez qu'une partie du carrousel, les numéros d'origine sont conservés.
+The prefix is the post code. The number indicates the media item's position in the carousel, starting at `01`. If you select only part of a carousel, the original numbers are preserved.
 
-Les vidéos portent l'extension `.mp4`. Les images utilisent l'extension détectée dans leur URL, parmi JPG, PNG et WebP, avec JPG par défaut. Les fichiers sont téléchargés depuis les URL collectées ; cette version n'applique pas de redimensionnement à 1080 pixels ni de conversion d'image.
+Videos use the `.mp4` extension. Images use the extension detected in their URL, among JPG, PNG, and WebP, with JPG as the default. Files are downloaded from the collected URLs. This version does not resize images to 1080 pixels or convert them.
 
-Si un nom de fichier existe déjà, le navigateur crée un nom distinct plutôt que de remplacer le fichier existant.
+If a filename already exists, the browser creates a distinct name instead of replacing the existing file.
 
-Le message **Downloads queued** indique que les demandes ont été transmises au navigateur. Consultez son gestionnaire de téléchargements pour vérifier leur fin et les éventuels échecs. Gardez la fenêtre de l'extension ouverte jusqu'à la fin de la mise en file.
+**Downloads queued** means the requests have been handed to the browser. Check its download manager for completion and any failures. Keep the extension popup open until all requests have been queued.
 
-## Comprendre les résultats et résoudre un problème
+## Understand results and troubleshoot
 
-Un scan à **100 %** indique que toutes les publications découvertes ont été traitées. Consultez aussi le compteur d'erreurs : ce pourcentage ne garantit pas que chaque média a pu être récupéré.
+A scan at **100%** means all discovered posts have been processed. Also check the error count, since this percentage does not guarantee that every media item was retrieved.
 
-| Message ou situation | Que faire ? |
+| Message or situation | What to do |
 | --- | --- |
-| **Open an Instagram profile first** | Ouvrez la page d'un profil avant de lancer le scan complet. |
-| **No Instagram post is currently open** | Ouvrez une publication depuis la grille de son profil, puis relancez Scan Post. |
-| **Reload Media Collector…** | Rechargez l'extension dans `chrome://extensions`, puis rechargez la page Instagram. |
-| **No video identity received…** | Revenez au profil, rouvrez la publication et relancez le scan. |
-| **Scan partially complete** ou erreurs par publication | Notez l'URL et le message, puis réessayez la publication avec Scan Post. |
-| **Discovery may be incomplete** | Le chargement de toute la grille n'a pas pu être confirmé. Vérifiez la connexion et réessayez depuis le haut du profil. |
-| **Interrupted** ou **Paused** | Revenez au même profil dans le même onglet et utilisez Resume Full Profile si proposé. |
-| **Downloads queued**, mais un fichier manque | Vérifiez le gestionnaire de téléchargements du navigateur. Si le lien ne fonctionne plus, rescanez la publication pour obtenir un lien récent. |
+| **Open an Instagram profile first** | Open a profile page before starting a full-profile scan. |
+| **No Instagram post is currently open** | Open a post from its profile grid, then retry Scan Post. |
+| **Reload Media Collector…** | Reload the extension in `chrome://extensions`, then reload the Instagram page. |
+| **No video identity received…** | Return to the profile, reopen the post, and retry the scan. |
+| **Scan partially complete** or errors for individual posts | Note the URL and message, then retry that post with Scan Post. |
+| **Discovery may be incomplete** | Loading the entire grid could not be confirmed. Check your connection and retry from the top of the profile. |
+| **Interrupted** or **Paused** | Return to the same profile in the same tab and use Resume Full Profile if offered. |
+| **Downloads queued**, but a file is missing | Check the browser's download manager. If the link no longer works, rescan the post to obtain a fresh link. |
 
-Instagram peut modifier sa page ou la façon dont les médias sont chargés. La collecte dépend du contenu accessible et chargé dans votre session. Les stories, les directs et les autres sites ne font pas partie des fonctionnalités de v0.12.3.
+Instagram may change its pages or how media are loaded. Collection depends on content accessible and loaded in your session. Stories, live streams, and other websites are outside the feature set of v0.12.3.
 
-## Données et autorisations
+## Data and permissions
 
-AIIDI utilise votre session Instagram déjà ouverte. L'extension ne vous demande pas votre mot de passe Instagram et n'envoie pas les médias à un serveur AIIDI.
+AIIDI uses your existing Instagram session. The extension does not ask for your Instagram password or send media to an AIIDI server.
 
-L'analyse s'effectue dans le navigateur. L'extension lit les données des publications chargées par Instagram pour associer les vidéos à la bonne publication et au bon élément du carrousel. Les images et vidéos restent téléchargées depuis les serveurs qui les hébergent.
+Analysis runs in the browser. The extension reads post data loaded by Instagram to associate videos with the correct post and carousel item. Images and videos are downloaded from the servers hosting them.
 
-| Autorisation | Rôle dans l'extension |
+| Permission | Purpose |
 | --- | --- |
-| `activeTab` et `scripting` | Exécuter les outils d'analyse dans l'onglet Instagram utilisé. |
-| Accès à `instagram.com` et `www.instagram.com` | Lire les données chargées par Instagram nécessaires à l'extraction. |
-| `storage` | Conserver localement la progression, les résultats, les erreurs et les sélections du scan complet. |
-| `downloads` | Enregistrer les médias sélectionnés via le gestionnaire de téléchargements du navigateur. |
+| `activeTab` and `scripting` | Run the scanning tools in the Instagram tab being used. |
+| Access to `instagram.com` and `www.instagram.com` | Read data loaded by Instagram that are needed for extraction. |
+| `storage` | Save full-profile progress, results, errors, and selections locally. |
+| `downloads` | Save selected media through the browser's download manager. |
 
-## Mettre à jour l'extension
+## Update the extension
 
-1. Terminez ou arrêtez le scan en cours.
-2. Remplacez les fichiers de votre dossier d'installation par ceux de la version souhaitée.
-3. Dans `chrome://extensions`, cliquez sur **Recharger** sur la carte Media Collector.
-4. Rechargez les pages Instagram déjà ouvertes avant de lancer un nouveau scan.
+1. Finish or stop the current scan.
+2. Replace the files in your installation folder with those from the desired version.
+3. In `chrome://extensions`, click **Reload** on the Media Collector card.
+4. Reload any open Instagram pages before starting a new scan.
 
-Cette installation locale nécessite une mise à jour manuelle des fichiers.
+This local installation requires manual file updates.
 
-## Participer aux tests
+## Help with testing
 
-Pour signaler un problème ou proposer une amélioration, ouvrez une [issue sur GitHub](https://github.com/maissoumaboudrare/aiidi/issues).
+To report an issue or suggest an improvement, open an [issue on GitHub](https://github.com/maissoumaboudrare/aiidi/issues).
 
-Pour un bug, indiquez :
+For a bug report, include the following information.
 
-- la version de l'extension, votre navigateur et votre système ;
-- le mode utilisé : Scan Post ou Scan Full Profile ;
-- les étapes pour reproduire le problème ;
-- le résultat attendu et celui obtenu ;
-- le message d'erreur exact et l'URL concernée si elle peut être partagée publiquement.
+- The extension version, your browser, and your operating system.
+- The mode used, either Scan Post or Scan Full Profile.
+- Steps to reproduce the issue.
+- The expected and actual results.
+- The exact error message and the affected URL if it can be shared publicly.
 
-Vous pouvez joindre une capture de la galerie ou de l'erreur. Ne publiez pas de mot de passe, de cookie de session ou de contenu privé dans une issue.
+You may attach a screenshot of the gallery or error. Do not post passwords, session cookies, or private content in an issue.
 
-La version v0.12.3 a passé **26 tests automatisés**. Les scans et les téléchargements ont également été validés manuellement par le porteur du projet sur les publications et le profil utilisés pour les tests. Cela ne constitue pas une validation sur tous les profils ni tous les navigateurs Chromium.
+Version v0.12.3 passed **26 automated tests**. Scans and downloads were also manually validated by the project owner on the posts and profile used for testing. This does not constitute validation across all profiles or all Chromium browsers.
 
-## Pour les développeurs
+## For developers
 
-Aucune compilation n'est nécessaire pour charger l'extension. Les principaux fichiers sont :
+No build step is required to load the extension. The main files are listed below.
 
 ```text
-manifest.json                   Configuration de l'extension
+manifest.json                   Extension configuration
 popup.html                      Interface
-popup.js                        Galerie, sélection et téléchargements
-adapters/instagram.js           Extraction d'une publication
-adapters/instagram-network.js   Lecture des réponses chargées par Instagram
-adapters/instagram-profile.js   Découverte des publications d'un profil
-adapters/instagram-batch.js     Ouverture et fermeture des publications
-adapters/profile-runner.js      Exécution et progression du scan complet
-adapters/router.js              Choix de l'adaptateur selon le site
-tests/                          Tests automatisés
+popup.js                        Gallery, selection, and downloads
+adapters/instagram.js           Single-post extraction
+adapters/instagram-network.js   Reading responses loaded by Instagram
+adapters/instagram-profile.js   Profile post discovery
+adapters/instagram-batch.js     Opening and closing posts
+adapters/profile-runner.js      Full-profile execution and progress
+adapters/router.js              Choosing the adapter for the website
+tests/                          Automated tests
 ```
 
-Avec une version de Node.js prenant en charge `node:test`, lancez les tests depuis la racine du projet :
+With a version of Node.js supporting `node:test`, run the tests from the project root.
 
 ```bash
 node --test tests/*.test.cjs
 ```
 
-Le tag [`v0.12.3`](https://github.com/maissoumaboudrare/aiidi/tree/v0.12.3) identifie la version validée. La branche de travail est `feature/batch-media-extraction`.
+The [`v0.12.3`](https://github.com/maissoumaboudrare/aiidi/tree/v0.12.3) tag identifies the validated version. The working branch is `feature/batch-media-extraction`.
+
+## License and personal modifications
+
+Copyright © 2026 Maïssoum Aboudrare — imiximik. The [personal use license](LICENSE.md) allows the purchaser to use and modify their copy for their own personal needs. Redistribution and resale of the Product or a modified version require the author's written permission, subject to mandatory legal rights. Delivery of the source code does not transfer intellectual property rights in the pre-existing code.
+
+You may propose an improvement to the author without any obligation to share your modifications. Incorporation into a distributed version requires an explicit agreement.
+
+## Maintenance and dependence on Instagram
+
+The [maintenance and compatibility terms](MAINTENANCE.md) describe how the Product is maintained. While AIIDI is being sold, imiximik checks its operation at least once a month and seeks feasible fixes when an issue is identified.
+
+Changes to Instagram may interrupt operation temporarily or permanently. A fix may prove impossible, potentially leading to the suspension or discontinuation of sales. Purchasers' applicable statutory warranties and remedies remain preserved. Read these terms and the license before purchasing.

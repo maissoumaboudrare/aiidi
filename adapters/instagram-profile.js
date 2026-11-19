@@ -1,6 +1,6 @@
 
 async function scanInstagramProfile() {
-  const sleep = (ms) =>
+  const imiximikPause = (ms) =>
     new Promise((resolve) => setTimeout(resolve, ms));
 
   const parts = window.location.pathname
@@ -91,7 +91,7 @@ async function scanInstagramProfile() {
       behavior: "instant"
     });
 
-    await sleep(900);
+    await imiximikPause(900);
 
     collectPosts();
 

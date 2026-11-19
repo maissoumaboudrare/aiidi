@@ -512,7 +512,7 @@ async function downloadSelected() {
       downloadButtonText.textContent =
         `Downloading… ${completed} / ${selected.length}`;
 
-      await sleep(150);
+      await imiximikPause(150);
     } catch (error) {
       console.error("Download failed:", item.url, error);
     }
@@ -563,6 +563,6 @@ function sanitizeFilename(value) {
     .replace(/_+/g, "_");
 }
 
-function sleep(ms) {
+function imiximikPause(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

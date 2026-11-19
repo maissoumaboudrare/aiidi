@@ -2,7 +2,7 @@
 // issue requests, read credentials, or expose complete response bodies.
 (() => {
   const posts = new Map();
-  const safeUrl = value => {
+  const imiximikMediaUrl = value => {
     try { const url = new URL(value); return url.protocol === 'https:' &&
       /(^|\.)(cdninstagram\.com|fbcdn\.net|instagram\.com)$/.test(url.hostname) ? url.href : ''; }
     catch { return ''; }
@@ -24,8 +24,8 @@
           video_duration: child.video_duration,
           video_versions: [...(child.video_versions || []), ...(child.video_url ? [{
             url: child.video_url, width: child.dimensions?.width, height: child.dimensions?.height
-          }] : [])].map(v => ({url: safeUrl(v.url), width: v.width, height: v.height})).filter(v => v.url),
-          display_url: safeUrl(child.image_versions2?.candidates?.[0]?.url || child.display_url)
+          }] : [])].map(v => ({url: imiximikMediaUrl(v.url), width: v.width, height: v.height})).filter(v => v.url),
+          display_url: imiximikMediaUrl(child.image_versions2?.candidates?.[0]?.url || child.display_url)
         }));
         const key = `${username.toLowerCase()}:${code}`;
         const previous = posts.get(key);
