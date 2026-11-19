@@ -6,6 +6,9 @@ Collectez les images et les vidéos d'Instagram, choisissez les médias à conse
 
 AIIDI est une extension Chromium Manifest V3 pour ordinateur. Elle apparaît dans le navigateur sous le nom **Media Collector**. Son interface utilise des boutons en anglais, repris tels quels dans ce guide.
 
+
+**Audio des vidéos** : la récupération de l'audio n'est pas prise en charge dans v0.12.3. Les vidéos téléchargées peuvent être dépourvues de son. AIIDI conserve le fichier vidéo fourni par Instagram sans récupérer ni assembler de piste audio séparée. Si le fichier source contient déjà du son, celui-ci est conservé.
+
 ## Fonctionnalités
 
 - **Scan Post** : extraire les médias de la publication ouverte depuis un profil.
